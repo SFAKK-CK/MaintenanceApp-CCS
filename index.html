@@ -4368,6 +4368,21 @@ function tSlaBadges(t,now,skipSla){
 }
 
 // One ticket flashcard (transparent), GM-summary anatomy + technician actions
+// Completed ticket used parts but no STOCK-OK marker → deduction never
+// confirmed. STOCK-FAIL is the explicit marker written when the deduct call
+// failed after closing. Pre-v13 completions (deduction was silently broken)
+// also correctly flag as not-deducted.
+function tStockFlag(t){
+  var sp=(t.spareParts||''), nt=(t.notes||'');
+  var used = sp.indexOf('\u0E43\u0E0A\u0E49\u0E08\u0E23\u0E34\u0E07')>=0
+             ? sp.indexOf('\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E43\u0E0A\u0E49\u0E2D\u0E30\u0E44\u0E2B\u0E25\u0E48')<0
+             : (sp.trim()!=='' && sp.indexOf('\u0E02\u0E2D\u0E0B\u0E37\u0E49\u0E2D')<0);
+  if(!used) return '';
+  if(nt.indexOf('STOCK-FAIL')>=0) return 'fail';
+  if(nt.indexOf('STOCK-OK')<0)    return 'unconfirmed';
+  return '';
+}
+
 function tCardHTML(t,u,now){
   var st=t._st, tid=esc(t.ticketNumber);
   var hasPO=!!(t.poNumber&&t.poNumber.trim());
@@ -4383,7 +4398,11 @@ function tCardHTML(t,u,now){
   if(t.cause&&t.machine&&t.cause!==t.machine)card+='<div class="tt-cause">💬 '+esc(t.cause)+'</div>';
 
   if(isCancel){ card+='<div class="tt-lock cancel" onclick="tOpen(\''+tid+'\',\'u\')">🔒 ถูกยกเลิก — แตะเพื่อดูเหตุผล / Tap for reason</div></div>'; return card; }
-  if(isDone){ card+='<div class="tt-tap" onclick="tOpen(\''+tid+'\',\'u\')">👆 แตะเพื่อดูรายละเอียด / Tap for details</div>'+(t.spareParts?'<div class="tt-po">🧩 อะไหล่: '+esc(t.spareParts)+'</div>':'')+'</div>'; return card; }
+  if(isDone){
+    var _sf=tStockFlag(t);
+    card+='<div class="tt-tap" onclick="tOpen(\''+tid+'\',\'u\')">👆 แตะเพื่อดูรายละเอียด / Tap for details</div>'+(t.spareParts?'<div class="tt-po">🧩 อะไหล่: '+esc(t.spareParts)+'</div>':'');
+    if(_sf) card+='<div style="margin:0 12px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 11px;font-size:13px;font-weight:700;color:#b91c1c">\u26A0\uFE0F \u0E15\u0E31\u0E14\u0E2A\u0E15\u0E47\u0E2D\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Stock not deducted \u2014 \u0E15\u0E31\u0E14\u0E43\u0E19\u0E0A\u0E35\u0E17\u0E14\u0E49\u0E27\u0E22\u0E21\u0E37\u0E2D</div>';
+    card+='</div>'; return card; }
 
   if(!gateAccept)card+='<div class="tt-tap" onclick="tOpen(\''+tid+'\',\'u\')">👆 แตะเพื่อดูรายละเอียด / Tap for details</div>';
   card+=tTeamAssigned(t,u);
@@ -4638,6 +4657,9 @@ function tRenderDetail(){
       ['\u{1F516} PO Number', t.poNumber||'\u2014'],
       ['\u2705 \u0E40\u0E2A\u0E23\u0E47\u0E08\u0E40\u0E21\u0E37\u0E48\u0E2D', t.completedDate?(function(d){var x=new Date(d);return isNaN(x)?String(d):(('0'+x.getDate()).slice(-2)+'/'+('0'+(x.getMonth()+1)).slice(-2)+'/'+x.getFullYear()+' '+('0'+x.getHours()).slice(-2)+':'+('0'+x.getMinutes()).slice(-2));})(t.completedDate):'\u2014']
     ];
+    var _sfd=tStockFlag(t);
+    if(_sfd) h+='<div class="td-banner danger"><div class="bt">\u26A0\uFE0F \u0E15\u0E31\u0E14\u0E2A\u0E15\u0E47\u0E2D\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Stock not deducted</div>' +
+      '<div class="bs">\u0E43\u0E1A\u0E07\u0E32\u0E19\u0E1B\u0E34\u0E14\u0E41\u0E25\u0E49\u0E27 \u0E41\u0E15\u0E48\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E2D\u0E30\u0E44\u0E2B\u0E25\u0E48\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E31\u0E14\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E2A\u0E15\u0E47\u0E2D\u0E01 \u2014 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E31\u0E14\u0E43\u0E19 \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E08\u0E48\u0E32\u0E22\u0E2D\u0E2D\u0E01 \u0E14\u0E49\u0E27\u0E22\u0E21\u0E37\u0E2D</div></div>';
     h+='<div class="td-banner ok"><div class="bt">\u2705 \u0E1B\u0E34\u0E14\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27 / Completed</div>' +
        '<div class="bs">\u0E14\u0E39\u0E44\u0E14\u0E49\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E40\u0E14\u0E35\u0E22\u0E27 \u2014 \u0E41\u0E01\u0E49\u0E44\u0E02\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 / Read-only</div></div>';
     h+='<div class="td-ro">';
@@ -4976,6 +4998,16 @@ function tComplete(){
   }).catch(function(e){
     hideLoading();
     // Steps 0+1 already succeeded — ticket is Completed. Only stock deduction may have failed.
+    // Persist the failure so the completed card keeps warning after this
+    // session — best effort; if even this write fails, the missing STOCK-OK
+    // marker still triggers the warning.
+    try{
+      if(!noParts && _techSelected.length>0){
+        postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,
+          notes:'\u26A0\uFE0F STOCK-FAIL: \u0E15\u0E31\u0E14\u0E2A\u0E15\u0E47\u0E2D\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 ('+(e&&e.message?e.message:'unknown')+') \u2014 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E31\u0E14\u0E43\u0E19\u0E0A\u0E35\u0E17\u0E14\u0E49\u0E27\u0E22\u0E21\u0E37\u0E2D'
+        }).catch(function(){});
+      }
+    }catch(_pf){}
     _techSelected=[];tBack();
     if(partsLog){
       toast('ปิดงานแล้ว ✓ แต่ตัดสต็อกไม่สำเร็จ — กรุณาตัดสต็อกด้วยมือ','warn');
