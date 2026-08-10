@@ -1519,7 +1519,7 @@ input:focus,select:focus,textarea:focus,
             <p style="font-weight:600">แตะเพื่อถ่ายภาพ / อัปโหลดรูป</p>
             <p class="hint">JPG, PNG • สูงสุด 5 รูป • ไม่เกิน 5MB/รูป</p>
           </div>
-          <input type="file" id="fileInput" accept="image/*" multiple capture="environment" onchange="handleFiles(this.files)">
+          <input type="file" id="fileInput" accept="image/*" multiple onchange="handleFiles(this.files)">
           <div class="previews" id="previews"></div>
           <div class="photo-count" id="photoCount"></div>
         </div>
@@ -1623,7 +1623,7 @@ input:focus,select:focus,textarea:focus,
             <p style="font-size:19px;color:var(--g600);font-weight:600;margin:0">แตะเพื่อแนบรูปภาพ / Tap to attach photos</p>
             <p style="font-size:19px;color:var(--g400);margin:4px 0 0">สูงสุด 3 รูป / Max 3 photos</p>
           </div>
-          <input type="file" id="usFileInput" accept="image/*" multiple capture="environment" onchange="handleUsPhotos(this.files)" style="display:none">
+          <input type="file" id="usFileInput" accept="image/*" multiple onchange="handleUsPhotos(this.files)" style="display:none">
           <div class="previews" id="usPreviews" style="margin-top:8px"></div>
           <div style="font-size:19px;color:var(--g400);text-align:right;margin-top:4px" id="usPhotoCount"></div>
         </div>
@@ -2463,21 +2463,66 @@ function toggleUrgent() {
   document.getElementById('urgTh').textContent = isUrgent ? 'ด่วน — URGENT' : 'ทั่วไป — Not Urgent';
 }
 
+// ── Photo pipeline for phone uploads ────────────────────────────────
+// Phone cameras produce 3–10MB images; the old 5MB hard reject turned many
+// real photos away, and accepted ones shipped as full-size base64. Downscale
+// to ≤1600px JPEG (~200–500KB) before attaching. If the browser cannot decode
+// the format (e.g. HEIC on Android Chrome), fall back to the original file
+// when it is within limits. iOS Safari decodes HEIC, so iPhone photos come
+// out as universally-viewable JPEG.
+function compressPhoto(file, cb) {
+  var fr = new FileReader();
+  fr.onload = function(ev) {
+    var src = ev.target.result;
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var MAXD = 1600;
+        var w = img.naturalWidth || img.width, hh = img.naturalHeight || img.height;
+        if (!w || !hh) { cb(src, false); return; }
+        var sc = Math.min(1, MAXD / Math.max(w, hh));
+        var cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w * sc));
+        cv.height = Math.max(1, Math.round(hh * sc));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        var out = cv.toDataURL('image/jpeg', 0.8);
+        if (out && out.indexOf('data:image/jpeg') === 0 && out.length < src.length) cb(out, true);
+        else cb(src, false);
+      } catch (e) { cb(src, false); }
+    };
+    img.onerror = function() { cb(src, false); };   // undecodable format — keep original
+    img.src = src;
+  };
+  fr.onerror = function() { cb(null, false); };
+  fr.readAsDataURL(file);
+}
+
+// Validate, compress and append one file to a photo array, then repaint.
+function addPhoto(f, arr, max, repaint) {
+  if (arr.length >= max) { toast('\u0E41\u0E19\u0E1A\u0E44\u0E14\u0E49\u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14 ' + max + ' \u0E23\u0E39\u0E1B', 'warn'); return; }
+  if (!f.type || f.type.indexOf('image/') !== 0) return;
+  if (f.size > 15 * 1024 * 1024) { toast(f.name + ': \u0E44\u0E1F\u0E25\u0E4C\u0E43\u0E2B\u0E0D\u0E48\u0E40\u0E01\u0E34\u0E19 15MB', 'warn'); return; }
+  var slot = arr.length; arr.push(null);   // reserve order while compressing
+  compressPhoto(f, function(data, wasCompressed) {
+    if (!data) { arr.splice(arr.indexOf(null), 1); toast(f.name + ': \u0E2D\u0E48\u0E32\u0E19\u0E44\u0E1F\u0E25\u0E4C\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49', 'error'); repaint(); return; }
+    if (!wasCompressed && f.size > 5 * 1024 * 1024) {
+      arr.splice(arr.indexOf(null), 1);
+      toast(f.name + ': \u0E44\u0E1F\u0E25\u0E4C\u0E43\u0E2B\u0E0D\u0E48\u0E40\u0E01\u0E34\u0E19 5MB \u0E41\u0E25\u0E30\u0E22\u0E48\u0E2D\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2014 \u0E25\u0E2D\u0E07\u0E16\u0E48\u0E32\u0E22\u0E43\u0E2B\u0E21\u0E48', 'warn'); repaint(); return;
+    }
+    var name = wasCompressed ? (f.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg' : (f.name || 'photo.jpg');
+    var idx = arr.indexOf(null);
+    if (idx >= 0) arr[idx] = { name: name, data: data }; else arr.push({ name: name, data: data });
+    repaint();
+  });
+}
+
 function handleFiles(files) {
-  const max = 5, maxSz = 5*1024*1024;
-  for (const f of files) {
-    if (photos.length >= max) break;
-    if (f.size > maxSz) { toast(f.name + ': ไฟล์ใหญ่เกิน 5MB', 'warn'); continue; }
-    if (!f.type.startsWith('image/')) continue;
-    const r = new FileReader();
-    r.onload = e => { photos.push({name:f.name, data:e.target.result}); renderPrev(); };
-    r.readAsDataURL(f);
-  }
+  Array.from(files).forEach(function(f){ addPhoto(f, photos, 5, function(){ photos = photos.filter(Boolean); renderPrev(); }); });
 }
 
 function renderPrev() {
   const c = document.getElementById('previews'); c.innerHTML = '';
-  photos.forEach((p,i) => {
+  photos.filter(Boolean).forEach((p,i) => {
     const d = document.createElement('div'); d.className = 'prev';
     d.innerHTML = '<img src="' + p.data + '" alt="Photo ' + (i+1) + '"><button class="rm" onclick="rmPhoto(' + i + ')">×</button>';
     c.appendChild(d);
@@ -2534,10 +2579,11 @@ async function submitForm() {
   while (attempt < MAX) {
     attempt++;
     try {
-      await postToScript(payload);
+      const _resp = await postToScript(payload);
       hideLoading();
       document.getElementById('successTicket').textContent = ticketNumber;
       document.getElementById('successScreen').classList.add('show');
+      if (_resp && _resp.photoWarning) toast('\u26A0\uFE0F ' + _resp.photoWarning, 'warn');
       return;
     } catch(e) { lastErr = e.message || 'Network error'; if (attempt < MAX) await new Promise(r => setTimeout(r, 1500*attempt)); }
   }
@@ -2980,15 +3026,7 @@ async function submitUpdate() {
 // ─── UPDATE STATUS PHOTOS ─────────────────────
 let usPhotos = [];
 function handleUsPhotos(files) {
-  const max = 3, maxSz = 5*1024*1024;
-  for (const f of files) {
-    if (usPhotos.length >= max) break;
-    if (f.size > maxSz) { toast(f.name + ': ไฟล์ใหญ่เกิน 5MB', 'warn'); continue; }
-    if (!f.type.startsWith('image/')) continue;
-    const r = new FileReader();
-    r.onload = e => { usPhotos.push({name:f.name, data:e.target.result}); renderUsPrev(); };
-    r.readAsDataURL(f);
-  }
+  Array.from(files).forEach(function(f){ addPhoto(f, usPhotos, 3, function(){ usPhotos = usPhotos.filter(Boolean); renderUsPrev(); }); });
 }
 function renderUsPrev() {
   const c = document.getElementById('usPreviews'); c.innerHTML = '';
@@ -4407,8 +4445,8 @@ function techCreateTicket(){
 
 // ── Detail screen ──
 var _updPhotos=[],_cmpPhotos=[];
-function tHandleUpdPhotos(files){var max=3,maxSz=5*1024*1024;Array.from(files).forEach(function(f){if(_updPhotos.length>=max)return;if(f.size>maxSz){toast(f.name+': ไฟล์ใหญ่เกิน 5MB','warn');return;}if(!f.type.startsWith('image/'))return;var r=new FileReader();r.onload=function(e){_updPhotos.push({name:f.name,data:e.target.result});tRenderPrev('upd');};r.readAsDataURL(f);});}
-function tHandleCmpPhotos(files){var max=3,maxSz=5*1024*1024;Array.from(files).forEach(function(f){if(_cmpPhotos.length>=max)return;if(f.size>maxSz){toast(f.name+': ไฟล์ใหญ่เกิน 5MB','warn');return;}if(!f.type.startsWith('image/'))return;var r=new FileReader();r.onload=function(e){_cmpPhotos.push({name:f.name,data:e.target.result});tRenderPrev('cmp');};r.readAsDataURL(f);});}
+function tHandleUpdPhotos(files){Array.from(files).forEach(function(f){addPhoto(f,_updPhotos,3,function(){_updPhotos=_updPhotos.filter(Boolean);tRenderPrev('upd');});});}
+function tHandleCmpPhotos(files){Array.from(files).forEach(function(f){addPhoto(f,_cmpPhotos,3,function(){_cmpPhotos=_cmpPhotos.filter(Boolean);tRenderPrev('cmp');});});}
 function tRenderPrev(which){var arr=which==='upd'?_updPhotos:_cmpPhotos;var el=document.getElementById('tPrev_'+which);if(!el)return;var h='';arr.forEach(function(p,i){h+='<div style="display:inline-block;position:relative;margin:4px"><img src="'+p.data+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0"><button onclick="tRmPhoto(\''+which+'\','+i+')" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:12px;cursor:pointer;line-height:20px">×</button></div>';});el.innerHTML=h;var c=document.getElementById('tCnt_'+which);if(c)c.textContent=arr.length?arr.length+'/3 รูป':'';}
 function tRmPhoto(which,i){if(which==='upd'){_updPhotos.splice(i,1);}else{_cmpPhotos.splice(i,1);}tRenderPrev(which);}
 // ── Inquiring parts search ──
@@ -4660,7 +4698,7 @@ function tRenderDetail(){
   h+='<div style="font-size:12px;font-weight:600;margin-bottom:5px">รายการที่เลือก (<span id="tInqSC">0</span>)</div><div id="tInqSP" style="margin-bottom:8px"></div>';
   h+='</div>';
   h+='<div id="tSparesWrap" style="display:none"><div class="td-lbl">🔩 ชื่ออะไหล่ที่ใช้ / Spare Parts Used</div><div class="td-ta"><input type="text" id="tUSpares" placeholder="เช่น: ปั๊มน้ำ No.3, สายพาน B-52, มอเตอร์ 2HP..."></div><div style="font-size:11px;color:#94a3b8;padding:0 4px 4px">ระบุชื่ออะไหล่ให้ชัดเจน / Please specify exact part names</div></div>';
-  h+='<div id="tPhotoWrap" style="display:none"><div class="td-lbl">📷 รูปภาพอ้างอิง / Reference Photos</div><div style="padding:0 4px 8px"><input type="file" accept="image/*" multiple capture="environment" onchange="tHandleUpdPhotos(this.files)" style="font-size:13px"><div id="tPrev_upd" style="margin-top:6px"></div><div id="tCnt_upd" style="font-size:11px;color:#94a3b8"></div></div></div>';
+  h+='<div id="tPhotoWrap" style="display:none"><div class="td-lbl">📷 รูปภาพอ้างอิง / Reference Photos</div><div style="padding:0 4px 8px"><input type="file" accept="image/*" multiple onchange="tHandleUpdPhotos(this.files)" style="font-size:13px"><div id="tPrev_upd" style="margin-top:6px"></div><div id="tCnt_upd" style="font-size:11px;color:#94a3b8"></div></div></div>';
   h+='<div class="td-warn" id="tUWarn">⚠️ "ขอใบเสนอราคา" หรือ "รอทีมภายนอก" จะระงับใบงาน</div>';
   h+='<button class="td-action blue" onclick="tSaveUpd()">💾 บันทึกอัพเดท</button><div class="td-hint">ต้องกรอกสาเหตุและรายละเอียดก่อนบันทึก</div>';
   h+='</div></div>';
@@ -4686,7 +4724,7 @@ function tRenderDetail(){
     +'<input type="checkbox" id="tNoParts" onchange="tNoPartsChg()" style="width:18px;height:18px;flex:none;cursor:pointer">'
     +'<span style="font-size:13px;color:#475569">ไม่ได้ใช้อะไหล่ / No parts used<br><span style="font-size:11px;color:#94a3b8">งานปรับตั้ง ทำความสะอาด หรือขันแน่น</span></span></label>';
   h+='</div>';
-  h+='<div class="td-lbl">📷 รูปหลังซ่อม</div><div style="padding:0 4px 8px"><input type="file" accept="image/*" multiple capture="environment" onchange="tHandleCmpPhotos(this.files)" style="font-size:13px"><div id="tPrev_cmp" style="margin-top:6px"></div><div id="tCnt_cmp" style="font-size:11px;color:#94a3b8"></div></div>';
+  h+='<div class="td-lbl">📷 รูปหลังซ่อม</div><div style="padding:0 4px 8px"><input type="file" accept="image/*" multiple onchange="tHandleCmpPhotos(this.files)" style="font-size:13px"><div id="tPrev_cmp" style="margin-top:6px"></div><div id="tCnt_cmp" style="font-size:11px;color:#94a3b8"></div></div>';
   h+='<div class="td-lbl">📝 หมายเหตุ</div><div class="td-ta"><textarea id="tCNote" placeholder="หมายเหตุ..."></textarea></div>';
   h+='<button class="td-action green" onclick="tComplete()">✓ เสร็จสิ้นและตัดสต็อก</button><div class="td-hint">อะไหล่จะถูกตัดสต็อกอัตโนมัติ</div>';
   h+='</div></div>';
