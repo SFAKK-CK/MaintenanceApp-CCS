@@ -328,6 +328,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .mv-numpad-del{background:#fff3e0;border-color:#fcd34d;color:#92400e}
 
 /* Ticket Detail Modal (slide-up, read-only) */
+.tc-modal{display:none;position:fixed;inset:0;background:rgba(15,30,61,.55);z-index:560;align-items:flex-end;justify-content:center}
+.tc-modal.show{display:flex}
+.tc-sheet{background:#f6f8fc;width:100%;max-width:620px;max-height:92vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden}
+.tc-head{background:#1a2744;color:#fff;padding:13px 16px;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.tc-head .tc-t{flex:1;font-size:15px;font-weight:600}
+.tc-x{background:rgba(255,255,255,.16);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:17px;cursor:pointer}
+.tc-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px}
+.tc-open{width:100%;margin-top:12px;padding:11px;background:#1a2744;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
 .mv-detail{display:none;position:fixed;inset:0;background:rgba(15,30,61,.55);z-index:550;align-items:flex-end;justify-content:center}
 .mv-detail.show{display:flex}
 .mv-detail-panel{background:#f0f4f8;width:100%;max-width:600px;max-height:92vh;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:mvDetailSlideUp .25s ease-out}
@@ -1777,6 +1785,18 @@ input:focus,select:focus,textarea:focus,
     </div>
 
     <!-- Ticket Detail Modal (read-only, slide-up) -->
+    <!-- Full ticket card popup — reuses buildTicketResult(), the same renderer
+         the Check Progress page uses, so the card is identical by construction. -->
+    <div class="tc-modal" id="tcModal" onclick="closeTicketCard(event)">
+      <div class="tc-sheet" onclick="event.stopPropagation()">
+        <div class="tc-head">
+          <span class="tc-t" id="tcTitle">—</span>
+          <button class="tc-x" onclick="closeTicketCard()" aria-label="Close">✕</button>
+        </div>
+        <div class="tc-body" id="tcBody"></div>
+      </div>
+    </div>
+
     <div class="mv-detail" id="mvDetail" onclick="closeDetail(event)">
       <div class="mv-detail-panel">
         <div class="mv-detail-header">
@@ -2822,6 +2842,54 @@ function buildPhotosSection(photosStr) {
 // ─── UPDATE STATUS ─────────────────────────────
 let usTicket = null;
 
+var _tcTicket = null;   // ticket currently shown in the technician detail view
+
+// ── Full ticket card popup ───────────────────────────────────────────────
+// Renders with buildTicketResult() — the exact function the Check Progress page
+// uses — so the popup and the search card can never drift apart. PR reference
+// photos are fetched lazily afterwards and appended, because they live in
+// ScriptProperties rather than the ticket payload.
+function openTicketCard(t) {
+  if (!t) return;
+  var modal = document.getElementById('tcModal');
+  var body  = document.getElementById('tcBody');
+  if (!modal || !body) return;
+  document.getElementById('tcTitle').textContent = t.ticketNumber || '—';
+  // Technician tickets lack two fields buildTicketResult reads; default them so
+  // the shared renderer behaves identically on both surfaces.
+  var full = Object.assign({ desiredDate: '', outsidePath: '' }, t);
+  try { body.innerHTML = buildTicketResult(full); }
+  catch (e) { body.innerHTML = '<div class="tr-empty">\u26A0\uFE0F \u0E41\u0E2A\u0E14\u0E07\u0E1C\u0E25\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 / Could not render</div>'; }
+  modal.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  tcLoadRefPhotos(t.ticketNumber);
+}
+
+function closeTicketCard(e) {
+  if (e && e.target && e.target.id !== 'tcModal' && e.type === 'click' && e.target.closest('.tc-sheet')) return;
+  var modal = document.getElementById('tcModal');
+  if (modal) modal.classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// Lazy — one property read, only when the card is actually opened.
+async function tcLoadRefPhotos(ticketNumber) {
+  if (!ticketNumber) return;
+  try {
+    const r = await fetch(APPS_SCRIPT_URL + '?action=getRefPhotos&ticket=' + encodeURIComponent(ticketNumber));
+    const j = await safeJson(r);
+    if (!j || !j.success || !j.photos) return;
+    const sec = buildPhotosSection(j.photos);
+    if (!sec) return;
+    const body = document.getElementById('tcBody');
+    if (!body || !document.getElementById('tcModal').classList.contains('show')) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = '<div style="margin-top:10px;font-size:15px;font-weight:700;color:#1a2744">' +
+      '\uD83D\uDCCE \u0E23\u0E39\u0E1B\u0E41\u0E19\u0E1A\u0E15\u0E2D\u0E19\u0E02\u0E2D\u0E0B\u0E37\u0E49\u0E2D / PR reference photos</div>' + sec;
+    body.appendChild(wrap);
+  } catch (e) { /* photos are a bonus — never break the card */ }
+}
+
 // ── Requested-items panel for locked procurement states ──────────────────
 // Column P holds "ขอซื้อ / Requested:" at PR time, with "ใช้จริง / Used:"
 // appended only at completion. While a ticket is locked awaiting GM/Purchasing,
@@ -2863,7 +2931,9 @@ function usPaintPrItems(lockDiv, spareParts) {
     var btn = lockDiv.querySelector('button');
     if (btn) lockDiv.insertBefore(host, btn); else lockDiv.appendChild(host);
   }
-  host.innerHTML = prItemsPanelHtml(spareParts);
+  host.innerHTML = prItemsPanelHtml(spareParts) +
+    '<button class="tc-open" onclick="openTicketCard(usTicket)">' +
+    '\uD83D\uDCCB \u0E14\u0E39\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14 / View full details</button>';
 }
 
 async function lookupTicket() {
@@ -4731,6 +4801,8 @@ function tRenderDetail(){
     var fzMsg={'Waiting Parts':'รออะไหล่ — รอ PO จากจัดซื้อ','Outside Team':'รอทีมภายนอก — รอจัดซื้อดำเนินการ','Inquiring':'ขอใบเสนอราคา — รอจัดซื้อสอบราคา','PR Pending':'รออนุมัติ PR จาก GM'}[st]||'ใบงานถูกระงับ';
     h+=photoHtml;
     h+=prItemsPanelHtml(t.spareParts);
+    _tcTicket = t;   // the detail view renders one ticket at a time
+    h+='<button class="tc-open" onclick="openTicketCard(_tcTicket)">\uD83D\uDCCB \u0E14\u0E39\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14 / View full details</button>';
     h+='<div class="td-banner froz"><div class="bt">🔒 '+fzMsg+'</div><div class="bs">ไม่สามารถอัพเดทได้จนกว่าสถานะจะเปลี่ยน</div></div>';
     h+=logHtml;document.getElementById('techDetailInner').innerHTML=h;return;
   }
