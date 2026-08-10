@@ -2822,6 +2822,50 @@ function buildPhotosSection(photosStr) {
 // ─── UPDATE STATUS ─────────────────────────────
 let usTicket = null;
 
+// ── Requested-items panel for locked procurement states ──────────────────
+// Column P holds "ขอซื้อ / Requested:" at PR time, with "ใช้จริง / Used:"
+// appended only at completion. While a ticket is locked awaiting GM/Purchasing,
+// ENG could not see what they had asked for. This renders the Requested block
+// only — read-only, no inputs, no unlocking. Returns '' when there is nothing
+// to show, so callers can concatenate unconditionally.
+function prItemsPanelHtml(spareParts) {
+  var sp = (spareParts || '') + '';
+  if (!sp.trim()) return '';
+  // Keep only the Requested block; drop any Used block that may exist.
+  var usedAt = sp.indexOf('\u0E43\u0E0A\u0E49\u0E08\u0E23\u0E34\u0E07');
+  if (usedAt >= 0) sp = sp.slice(0, usedAt);
+  sp = sp.replace(/\u0E02\u0E2D\u0E0B\u0E37\u0E49\u0E2D\s*\/\s*Requested\s*:?/i, '').trim();
+  if (!sp) return '';
+  var lines = sp.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l !== ''; });
+  if (!lines.length) return '';
+  var rows = lines.map(function(l){
+    return '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(136,14,79,.12)">' +
+           '<div style="flex:1;font-size:15px;color:#6a1b3a;line-height:1.5">' + esc(l) + '</div></div>';
+  }).join('');
+  return '<div style="margin-top:12px;background:rgba(255,255,255,.65);border:1px solid rgba(244,143,177,.7);' +
+         'border-radius:9px;padding:11px 13px">' +
+         '<div style="font-size:15px;font-weight:700;color:#880e4f;margin-bottom:4px">' +
+         '\uD83D\uDCE6 \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48\u0E02\u0E2D\u0E0B\u0E37\u0E49\u0E2D / Items requested</div>' +
+         rows +
+         '<div style="font-size:13px;color:#9c4d6b;margin-top:7px">' +
+         '\u0E14\u0E39\u0E44\u0E14\u0E49\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E40\u0E14\u0E35\u0E22\u0E27 \u2014 \u0E41\u0E01\u0E49\u0E44\u0E02\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 / Read-only</div></div>';
+}
+
+// Paint (or clear) the panel inside the lock box. Appended AFTER the existing
+// title and body divs so `div:first-child` / `div:nth-child(2)` — which the
+// lock code writes to by position — keep resolving to the same elements.
+function usPaintPrItems(lockDiv, spareParts) {
+  if (!lockDiv) return;
+  var host = lockDiv.querySelector('#usPrItemsPanel');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'usPrItemsPanel';
+    var btn = lockDiv.querySelector('button');
+    if (btn) lockDiv.insertBefore(host, btn); else lockDiv.appendChild(host);
+  }
+  host.innerHTML = prItemsPanelHtml(spareParts);
+}
+
 async function lookupTicket() {
   const num = document.getElementById('usTicketInput').value.trim().toUpperCase();
   if (!num) { toast('กรุณากรอกหมายเลข Ticket', 'warn'); return; }
@@ -2940,6 +2984,9 @@ async function lookupTicket() {
     if (mustLock) {
       lockDiv.querySelector('div:first-child').innerHTML  = lockTitle;
       lockDiv.querySelector('div:nth-child(2)').innerHTML = lockBody;
+      // Show what was requested in every locked procurement state — the ENG
+      // question "what did I ask for?" is the same at PR, sourcing and PO wait.
+      usPaintPrItems(lockDiv, notYetAccepted ? '' : ticket.spareParts);
       if (usFieldsInner) usFieldsInner.style.display = 'none';
       lockDiv.style.display = 'block';
       if (overrideDiv) overrideDiv.style.display = 'none';
@@ -2999,6 +3046,7 @@ async function submitUpdate() {
       const usFieldsInner= document.getElementById('usFieldsInner');
       if (lockDiv) {
         if (willFlipToPRPending) {
+          usPaintPrItems(lockDiv, (usTicket && usTicket.spareParts) || '');
           lockDiv.querySelector('div:first-child').innerHTML  = '🔒 รออนุมัติ PR จาก GM';
           lockDiv.querySelector('div:nth-child(2)').innerHTML = 'ใบขอซื้อถูกส่งให้ GM อนุมัติแล้ว รอการตอบกลับทางอีเมล<br><small>Purchase Request has been sent to GM. Awaiting approval via email.</small>';
         } else {
@@ -4682,6 +4730,7 @@ function tRenderDetail(){
   if(_isFroz){
     var fzMsg={'Waiting Parts':'รออะไหล่ — รอ PO จากจัดซื้อ','Outside Team':'รอทีมภายนอก — รอจัดซื้อดำเนินการ','Inquiring':'ขอใบเสนอราคา — รอจัดซื้อสอบราคา','PR Pending':'รออนุมัติ PR จาก GM'}[st]||'ใบงานถูกระงับ';
     h+=photoHtml;
+    h+=prItemsPanelHtml(t.spareParts);
     h+='<div class="td-banner froz"><div class="bt">🔒 '+fzMsg+'</div><div class="bs">ไม่สามารถอัพเดทได้จนกว่าสถานะจะเปลี่ยน</div></div>';
     h+=logHtml;document.getElementById('techDetailInner').innerHTML=h;return;
   }
