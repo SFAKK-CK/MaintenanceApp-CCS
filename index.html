@@ -3350,7 +3350,9 @@ function onSearchInput() {
   if (clearBtn) clearBtn.classList.toggle('show', !!input.value);
   if (_searchDebounce) clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
-    if (window.mvTickets) renderManagerView(mvTickets);
+    // `let mvTickets` is NOT a window property — window.mvTickets was always
+    // undefined, so this guard skipped every re-render and search did nothing.
+    if (Array.isArray(mvTickets)) renderManagerView(mvTickets);
   }, 150);
 }
 function clearSearch() {
@@ -3358,7 +3360,7 @@ function clearSearch() {
   if (input) { input.value = ''; input.focus(); }
   const clearBtn = document.getElementById('mvSearchClear');
   if (clearBtn) clearBtn.classList.remove('show');
-  if (window.mvTickets) renderManagerView(mvTickets);
+  if (Array.isArray(mvTickets)) renderManagerView(mvTickets);
 }
 
 function renderManagerView(tickets) {
@@ -4046,6 +4048,12 @@ let mvPasscodeInput  = '';
 const MV_PASSCODE    = '2580'; // ← Change this to your passcode
 
 function openReassignModal(ticketNumber) {
+  // Re-enable every action button. confirmReassign()/confirmResetToSubmitted()
+  // disable them while the request is in flight and only re-enable on error, so
+  // after one SUCCESSFUL re-assign they stayed disabled until a hard refresh.
+  // Resetting here makes the modal self-healing whatever happened last time.
+  document.querySelectorAll('.mv-reassign-opt').forEach(function(b){ b.disabled = false; });
+  document.querySelectorAll('#mvTeamStep button').forEach(function(b){ b.disabled = false; });
   mvReassignTicket = ticketNumber;
   document.getElementById('mvReassignTicketNum').textContent = ticketNumber;
   mvPasscodeInput = '';
@@ -4115,7 +4123,15 @@ async function confirmReassign(dept) {
   try {
     await postToScript({action:'acceptTicket', ticketNumber, technician: deptLabel, notifyReassign: true});
     const idx = mvTickets.findIndex(t => t.ticketNumber === ticketNumber);
-    if (idx !== -1) { mvTickets[idx].technician = deptLabel; mvTickets[idx].status = '🔵 In Progress'; mvTickets[idx].acceptedAt = ''; }
+    if (idx !== -1) {
+      mvTickets[idx].technician = deptLabel;
+      // Backend writes APPROVER as "<team> (Assigned by: GM)" — mirror it here or
+      // the card's team badge keeps showing the previous team until a reload.
+      mvTickets[idx].approver   = deptLabel + ' (Assigned by: GM)';
+      mvTickets[idx].status     = '🔵 In Progress';
+      mvTickets[idx].acceptedAt = '';
+    }
+    document.querySelectorAll('.mv-reassign-opt').forEach(function(b){ b.disabled = false; });
     closeReassignModal();
     renderManagerView(mvTickets);
     toast('✅ มอบหมายใหม่แล้ว / Re-assigned — รอทีมรับงานใหม่ / Awaiting Accept', 'success');
@@ -4137,6 +4153,7 @@ async function confirmResetToSubmitted() {
     });
     const idx = mvTickets.findIndex(t => t.ticketNumber === ticketNumber);
     if (idx !== -1) { mvTickets[idx].status = '🟠 Submitted'; mvTickets[idx].technician = ''; mvTickets[idx].approver = ''; }
+    document.querySelectorAll('#mvTeamStep button').forEach(function(b){ b.disabled = false; });
     closeReassignModal();
     renderManagerView(mvTickets);
   } catch(e) {
