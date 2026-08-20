@@ -2482,7 +2482,6 @@ function updateBuildInfoBox() {
     if (_pf) { _pf.style.display = 'block'; if (!document.querySelectorAll('.pr-item-row').length) prAddItem(); }
     if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / หมายเหตุ <span class="en">Reason / Remark</span> <span class="req">*</span>';
     if (causeArea)   causeArea.placeholder = 'ระบุเหตุผลที่ต้องซื้อ เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด ต้องเปลี่ยนอะไหล่';
-    if (causeArea)   causeArea.placeholder = 'ระบุชื่อสินค้า ขนาด และจำนวนให้ชัดเจน เช่น:\n- ถุงมือยาง Size M × 10 กล่อง\n- สายพาน B-52 × 2 เส้น\n- น้ำมันหล่อลื่น Shell Omala 220 × 1 กระป๋อง\n\nSpecify item name, size, and quantity clearly.';
   } else {
     // Show free-text input, hide category dropdown
     if (mnameInput)  { mnameInput.style.display  = ''; }
