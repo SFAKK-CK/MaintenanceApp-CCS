@@ -2480,8 +2480,8 @@ function updateBuildInfoBox() {
     if (mnameLabel)  mnameLabel.innerHTML = 'หมวดหมู่การจัดซื้อ <span class="en">Purchase Category</span> <span class="req">*</span>';
     var _pf = document.getElementById('prItemsField');
     if (_pf) { _pf.style.display = 'block'; if (!document.querySelectorAll('.pr-item-row').length) prAddItem(); }
-    if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / ราคาโดยประมาณ <span class="en">Reason / notes</span>';
-    if (causeArea)   causeArea.placeholder = 'เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด — ระบุเหตุผลหรือข้อมูลเพิ่มเติม';
+    if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / หมายเหตุ <span class="en">Reason / Remark</span> <span class="req">*</span>';
+    if (causeArea)   causeArea.placeholder = 'ระบุเหตุผลที่ต้องซื้อ เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด ต้องเปลี่ยนอะไหล่';
     if (causeArea)   causeArea.placeholder = 'ระบุชื่อสินค้า ขนาด และจำนวนให้ชัดเจน เช่น:\n- ถุงมือยาง Size M × 10 กล่อง\n- สายพาน B-52 × 2 เส้น\n- น้ำมันหล่อลื่น Shell Omala 220 × 1 กระป๋อง\n\nSpecify item name, size, and quantity clearly.';
   } else {
     // Show free-text input, hide category dropdown
@@ -2672,8 +2672,9 @@ function prBuildRequestedText() {
 function validateForm() {
   const isBuildReq = isPurchaseRequestType(document.querySelector('input[name=rtype]:checked')?.value);
   // For Open PR: validate category select instead of mname input
-  // Open PR: the item rows carry the request, so `cause` becomes optional notes.
-  const ids = isBuildReq ? ['rname','dept'] : ['rname','dept','mname','cause'];
+  // Open PR: items live in their own rows, but the reason/remark is still
+  // required — GM approves on the WHY, not just the shopping list.
+  const ids = isBuildReq ? ['rname','dept','cause'] : ['rname','dept','mname','cause'];
   for (const id of ids) {
     const el = document.getElementById(id);
     if (!el.value.trim()) { el.focus(); el.style.borderColor = '#ef4444'; setTimeout(() => el.style.borderColor = '', 2500); return false; }
