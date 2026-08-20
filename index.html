@@ -1512,6 +1512,18 @@ input:focus,select:focus,textarea:focus,
             <option value="อื่นๆ">อื่นๆ — ระบุในช่องรายการสินค้า / Other — describe in Items field</option>
           </select>
         </div>
+        <!-- Open PR only: structured item rows. Emits the numbered
+             "ขอซื้อ / Requested:" block the vendor form's per-item price grid
+             parses, so Purchasing can price every line under one vendor. -->
+        <div class="field" id="prItemsField" style="display:none">
+          <label class="lbl">รายการที่ต้องการซื้อ <span class="en">Items to purchase</span> <span class="req">*</span>
+            <span id="prItemsCount" style="float:right;font-weight:400;color:#94a3b8;font-size:12px"></span></label>
+          <div id="prItemsRows"></div>
+          <button type="button" id="prAddItemBtn" onclick="prAddItem()"
+            style="width:100%;padding:10px;border:1.5px dashed #cbd5e1;border-radius:8px;background:transparent;color:#2563eb;font-size:14px;font-weight:600;cursor:pointer">
+            ＋ เพิ่มรายการ / Add item</button>
+        </div>
+
         <div class="field">
           <label class="lbl" for="cause">อาการ/สาเหตุ <span class="en">Symptom / Cause</span> <span class="req">*</span></label>
           <textarea id="cause" rows="3" placeholder="อธิบายปัญหา... / Describe the issue..."></textarea>
@@ -2466,12 +2478,17 @@ function updateBuildInfoBox() {
     if (mnameInput)  { mnameInput.style.display  = 'none'; mnameInput.value = ''; }
     if (mnameSelect)   mnameSelect.style.display  = 'block';
     if (mnameLabel)  mnameLabel.innerHTML = 'หมวดหมู่การจัดซื้อ <span class="en">Purchase Category</span> <span class="req">*</span>';
-    if (causeLabel)  causeLabel.innerHTML = 'รายการสินค้า/บริการที่ต้องการ <span class="en">Items / Services to Purchase</span> <span class="req">*</span>';
+    var _pf = document.getElementById('prItemsField');
+    if (_pf) { _pf.style.display = 'block'; if (!document.querySelectorAll('.pr-item-row').length) prAddItem(); }
+    if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / ราคาโดยประมาณ <span class="en">Reason / notes</span>';
+    if (causeArea)   causeArea.placeholder = 'เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด — ระบุเหตุผลหรือข้อมูลเพิ่มเติม';
     if (causeArea)   causeArea.placeholder = 'ระบุชื่อสินค้า ขนาด และจำนวนให้ชัดเจน เช่น:\n- ถุงมือยาง Size M × 10 กล่อง\n- สายพาน B-52 × 2 เส้น\n- น้ำมันหล่อลื่น Shell Omala 220 × 1 กระป๋อง\n\nSpecify item name, size, and quantity clearly.';
   } else {
     // Show free-text input, hide category dropdown
     if (mnameInput)  { mnameInput.style.display  = ''; }
     if (mnameSelect) { mnameSelect.style.display  = 'none'; mnameSelect.value = ''; }
+    var _pf2 = document.getElementById('prItemsField');
+    if (_pf2) _pf2.style.display = 'none';
     if (mnameLabel)  mnameLabel.innerHTML = 'ชื่อเครื่อง/อุปกรณ์ <span class="en">Machine / Device</span> <span class="req">*</span>';
     if (causeLabel)  causeLabel.innerHTML = 'อาการ/สาเหตุ <span class="en">Symptom / Cause</span> <span class="req">*</span>';
     if (causeArea)   causeArea.placeholder = 'อธิบายปัญหา... / Describe the issue...';
@@ -2558,10 +2575,105 @@ uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.cl
 uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('over'));
 uploadArea.addEventListener('drop', e => { e.preventDefault(); uploadArea.classList.remove('over'); handleFiles(e.dataTransfer.files); });
 
+// ── Open PR structured items ─────────────────────────────────────────────
+// Units reuse TD_UNITS (the ระบุเอง list) plus อื่นๆ, which reveals a free-text
+// box. Open PR purchases never enter the inventory sheet, so the unit is
+// descriptive only — no stock key depends on it.
+var PR_UNITS = ['ตัว','อัน','ชุด','เส้น','เมตร','ตลับ','กล่อง','หลอด','ใบ','ลูก','กระป๋อง','ม้วน','ถุง','แผ่น','ฟุต','ลิตร','ถัง','เครื่อง','ก.ก','ML','CC','pcs'];
+var _prRowSeq = 0;
+
+function prAddItem(name, qty, unit) {
+  var wrap = document.getElementById('prItemsRows');
+  if (!wrap) return;
+  var id = ++_prRowSeq;
+  var opts = PR_UNITS.map(function(u){
+    return '<option value="'+u+'"'+(unit===u?' selected':'')+'>'+u+'</option>';
+  }).join('');
+  var d = document.createElement('div');
+  d.className = 'pr-item-row';
+  d.dataset.rid = id;
+  d.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:8px';
+  d.innerHTML =
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;width:14px;text-align:right"></span>' +
+      '<input class="pr-name" type="text" placeholder="ชื่อสินค้า / Item name" value="'+esc(name||'')+'" style="flex:1;min-width:0">' +
+      '<button type="button" onclick="prRemoveItem('+id+')" aria-label="Remove"' +
+        ' style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer">×</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;padding-left:20px">' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="'+(qty||1)+'" style="width:78px;flex:0 0 78px">' +
+      '<select class="pr-unit" onchange="prUnitChanged(this)" style="flex:1;min-width:0">' + opts +
+        '<option value="__other__"'+(unit&&PR_UNITS.indexOf(unit)<0?' selected':'')+'>อื่นๆ / Other…</option></select>' +
+      '<input class="pr-unit-other" type="text" placeholder="ระบุหน่วย" value="'+esc(unit&&PR_UNITS.indexOf(unit)<0?unit:'')+'"' +
+        ' style="flex:1;min-width:0;display:'+(unit&&PR_UNITS.indexOf(unit)<0?'block':'none')+'">' +
+    '</div>';
+  wrap.appendChild(d);
+  prRenumber();
+}
+
+function prRemoveItem(id) {
+  var row = document.querySelector('.pr-item-row[data-rid="'+id+'"]');
+  if (row) row.remove();
+  // Never leave the list empty — an empty list has no visible affordance.
+  if (!document.querySelectorAll('.pr-item-row').length) prAddItem();
+  else prRenumber();
+}
+
+function prUnitChanged(sel) {
+  var other = sel.parentNode.querySelector('.pr-unit-other');
+  if (!other) return;
+  var isOther = sel.value === '__other__';
+  other.style.display = isOther ? 'block' : 'none';
+  if (isOther) other.focus(); else other.value = '';
+}
+
+function prRenumber() {
+  var rows = document.querySelectorAll('.pr-item-row');
+  for (var i = 0; i < rows.length; i++) {
+    var n = rows[i].querySelector('.pr-idx');
+    if (n) n.textContent = (i + 1) + '.';
+  }
+  var c = document.getElementById('prItemsCount');
+  if (c) c.textContent = rows.length ? rows.length + ' รายการ' : '';
+}
+
+// Read the rows. Returns [] when any filled row is invalid so the caller can
+// block submission; ignores wholly blank trailing rows.
+function prCollectItems() {
+  var out = [];
+  var rows = document.querySelectorAll('.pr-item-row');
+  for (var i = 0; i < rows.length; i++) {
+    var nameEl = rows[i].querySelector('.pr-name');
+    var name = (nameEl.value || '').trim();
+    if (!name) continue;
+    var qty = parseInt(rows[i].querySelector('.pr-qty').value, 10);
+    if (!qty || qty < 1) qty = 1;
+    var sel = rows[i].querySelector('.pr-unit');
+    var unit = sel.value === '__other__'
+      ? (rows[i].querySelector('.pr-unit-other').value || '').trim()
+      : sel.value;
+    out.push({ name: name, qty: qty, unit: unit });
+  }
+  return out;
+}
+
+// Numbered block matching _parsePrItems_ (/^\s*\d+\.\s*(.+)$/) exactly.
+function prBuildRequestedText() {
+  var items = prCollectItems();
+  if (!items.length) return '';
+  var s = 'ขอซื้อ / Requested:';
+  for (var i = 0; i < items.length; i++) {
+    s += '\n' + (i + 1) + '. ' + items[i].name +
+         ' - ' + items[i].qty + (items[i].unit ? ' ' + items[i].unit : '');
+  }
+  return s;
+}
+
 function validateForm() {
   const isBuildReq = isPurchaseRequestType(document.querySelector('input[name=rtype]:checked')?.value);
   // For Open PR: validate category select instead of mname input
-  const ids = isBuildReq ? ['rname','dept','cause'] : ['rname','dept','mname','cause'];
+  // Open PR: the item rows carry the request, so `cause` becomes optional notes.
+  const ids = isBuildReq ? ['rname','dept'] : ['rname','dept','mname','cause'];
   for (const id of ids) {
     const el = document.getElementById(id);
     if (!el.value.trim()) { el.focus(); el.style.borderColor = '#ef4444'; setTimeout(() => el.style.borderColor = '', 2500); return false; }
@@ -2571,6 +2683,24 @@ function validateForm() {
     if (!sel || !sel.value) {
       if (sel) { sel.style.borderColor = '#ef4444'; setTimeout(() => sel.style.borderColor = '', 2500); }
       return false;
+    }
+    // At least one named item, else the PR says nothing about what to buy.
+    if (!prCollectItems().length) {
+      var firstName = document.querySelector('.pr-item-row .pr-name');
+      if (firstName) { firstName.focus(); firstName.style.borderColor = '#ef4444'; setTimeout(function(){ firstName.style.borderColor=''; }, 2500); }
+      toast('กรุณาระบุอย่างน้อย 1 รายการ / Add at least one item', 'warn');
+      return false;
+    }
+    // Unit set to อื่นๆ but left blank.
+    var rows = document.querySelectorAll('.pr-item-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (!(rows[i].querySelector('.pr-name').value||'').trim()) continue;
+      var s = rows[i].querySelector('.pr-unit');
+      if (s.value === '__other__') {
+        var o = rows[i].querySelector('.pr-unit-other');
+        if (!(o.value||'').trim()) { o.focus(); o.style.borderColor = '#ef4444'; setTimeout(function(){ o.style.borderColor=''; }, 2500);
+          toast('กรุณาระบุหน่วยนับ / Specify the unit', 'warn'); return false; }
+      }
     }
   }
   return true;
@@ -2591,7 +2721,23 @@ async function submitForm() {
       ? document.getElementById('mnameSelect').value
       : document.getElementById('mname').value.trim(),
     refCode: '',
-    cause: document.getElementById('cause').value.trim(),
+    // Open PR: the backend uses `cause` as itemDetails, and the vendor form
+    // parses it for the per-item price grid — so send the NUMBERED block and
+    // append any free-text notes below it.
+    cause: (function(){
+      var raw = document.getElementById('cause').value.trim();
+      if (!isBuildPayload) return raw;
+      var block = prBuildRequestedText();
+      if (!block) return raw;
+      if (!raw) return block;
+      // A note line that starts "1." would be parsed as another item by
+      // _parsePrItems_. Re-mark those lines with a bullet so the notes can say
+      // anything without inventing phantom line items.
+      var safeNotes = raw.split('\n').map(function(l){
+        return l.replace(/^(\s*)\d+\.\s*/, '$1• ');
+      }).join('\n');
+      return block + '\n\n' + 'หมายเหตุ / Notes:\n' + safeNotes;
+    })(),
     desiredDate: document.getElementById('ddate').value,
     photos: photos.map(p => ({name:p.name, data:p.data}))
   };
@@ -2622,6 +2768,8 @@ function resetForm() {
   document.getElementById('successScreen').classList.remove('show');
   document.getElementById('submitBtn').disabled = false;
   ['rname','dept','mname','cause','ddate'].forEach(id => document.getElementById(id).value = '');
+  var _pr = document.getElementById('prItemsRows');
+  if (_pr) { _pr.innerHTML = ''; _prRowSeq = 0; prRenumber(); }
   document.getElementById('t1').checked = true;
   if (isUrgent) toggleUrgent();
   photos = []; renderPrev();
