@@ -1314,7 +1314,7 @@ input:focus,select:focus,textarea:focus,
     </div>
     <div class="suc-btns">
       <button class="suc-btn-new" onclick="resetForm()">+ แจ้งซ่อมรายการใหม่<br><small>คำร้องใหม่ / New Request</small></button>
-      <button class="suc-btn-home" onclick="goHome()">← กลับหน้าหลัก / Back to Home</button>
+      <button class="suc-btn-home" id="sucBackBtn" onclick="goHome()">← กลับหน้าหลัก / Back to Home</button>
     </div>
   </div>
 </div>
@@ -2422,6 +2422,11 @@ function prefillReporter() {
 }
 
 function initForm() {
+  // Technicians land back on their job list (goHome's tech branch), so say so.
+  var _sb = document.getElementById('sucBackBtn');
+  if (_sb) _sb.innerHTML = (window._loggedInRole === 'tech')
+    ? '← กลับรายการงาน / Back to my jobs'
+    : '← กลับหน้าหลัก / Back to Home';
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
   const y = now.getFullYear(), m = pad(now.getMonth()+1), d = pad(now.getDate());
@@ -4753,6 +4758,9 @@ function tRefresh(){
 // as 🟠 Submitted (unassigned) and the GM is notified to assign.
 function techCreateTicket(){
   // goPage → initForm → prefillReporter() fills name and department.
+  // The success screen's Back button routes itself: goHome() was already
+  // overridden below to return role==='tech' users to their job list, so no
+  // extra routing is needed here — adding some is what broke the button once.
   goPage('page-form');
 }
 
