@@ -2492,6 +2492,8 @@ function updateBuildInfoBox() {
     if (mnameInput)  { mnameInput.style.display  = 'none'; mnameInput.value = ''; }
     if (mnameSelect)   mnameSelect.style.display  = 'block';
     if (mnameLabel)  mnameLabel.innerHTML = 'หมวดหมู่การจัดซื้อ <span class="en">Purchase Category</span> <span class="req">*</span>';
+    var _sbtn = document.getElementById('submitBtn');
+    if (_sbtn) _sbtn.textContent = 'ส่งใบขอซื้อให้ GM อนุมัติ — Submit PR to GM for approval';
     var _pf = document.getElementById('prItemsField');
     if (_pf) { _pf.style.display = 'block'; if (!document.querySelectorAll('.pr-item-row').length) prAddItem(); }
     if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / หมายเหตุ <span class="en">Reason / Remark</span> <span class="req">*</span>';
@@ -2500,6 +2502,8 @@ function updateBuildInfoBox() {
     // Show free-text input, hide category dropdown
     if (mnameInput)  { mnameInput.style.display  = ''; }
     if (mnameSelect) { mnameSelect.style.display  = 'none'; mnameSelect.value = ''; }
+    var _sbtn2 = document.getElementById('submitBtn');
+    if (_sbtn2) _sbtn2.textContent = 'ส่งคำร้องซ่อม — Submit Repair Request';
     var _pf2 = document.getElementById('prItemsField');
     if (_pf2) _pf2.style.display = 'none';
     if (mnameLabel)  mnameLabel.innerHTML = 'ชื่อเครื่อง/อุปกรณ์ <span class="en">Machine / Device</span> <span class="req">*</span>';
@@ -3581,8 +3585,12 @@ function renderManagerView(tickets) {
     if (hiddenKids[t.ticketNumber]) continue;   // rendered inside the parent card
     const st = t.status || '';
 
-    // Completed → skip entirely. Cancelled → collect for the red flashcard, then skip the rest.
-    if (st.indexOf('Completed') >= 0) continue;
+    // Completed → skip entirely… EXCEPT an Open PR: the backend ships those for
+    // 24h after goods-received so the 🛒 section can show "รับของแล้ว". This
+    // early exit predates that and silently dropped them (found 12 Sep 2026).
+    // Cancelled → collect for the red flashcard, then skip the rest.
+    const _prDoneRow = st.indexOf('Completed') >= 0 && isPurchaseRequestType(t.requestType);
+    if (st.indexOf('Completed') >= 0 && !_prDoneRow) continue;
     if (st.indexOf('Cancelled') >= 0) { if (matchesDept(t) && matchesSearch(t)) cancelled.push(t); continue; }
 
     // Overall counters (independent of dept/search filter — these show site-wide totals)
@@ -3592,7 +3600,7 @@ function renderManagerView(tickets) {
     if (st.indexOf('Inquiring') >= 0 || st.indexOf('PR Approval') >= 0 || st.indexOf('Vendor Selection') >= 0) cntInq++;
     if (st.indexOf('Waiting for Parts') >= 0) cntWP++;
     if (st.indexOf('Outside') >= 0) cntOut++;
-    if (t.desiredDate && new Date(t.desiredDate) < now) cntOver++;
+    if (!_prDoneRow && t.desiredDate && new Date(t.desiredDate) < now) cntOver++;   // a closed PR is never overdue
 
     // Section arrays (respect dept + search filter)
     if (!matchesDept(t)) continue;
@@ -3808,7 +3816,7 @@ function getTotalAgeStr(t, now) {
 
 function buildMvTicket(t, showAssign, now) {
   const isUrgentT = t.isUrgent && t.isUrgent.includes('Urgent');
-  const isOverdue = t.desiredDate && new Date(t.desiredDate) < now;
+  const isOverdue = t.desiredDate && new Date(t.desiredDate) < now && (t.status||'').indexOf('Completed') < 0;   // closed PR: no 🚨 badge
   const totalAge = getTotalAgeStr(t, now);
   const sla      = getSLABadge(t, now);
 
