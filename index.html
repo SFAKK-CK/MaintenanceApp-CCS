@@ -4502,17 +4502,6 @@ var _techNS = 'In Progress';
   document.getElementById('loginNumpad').innerHTML = n;
 })();
 
-// Physical keyboard support (PC/laptop): digits, Backspace, Enter — only while
-// the login page is showing, so it cannot swallow keys on any other screen.
-document.addEventListener('keydown', function(e) {
-  var pg = document.getElementById('page-login');
-  if (!pg || !pg.classList.contains('active')) return;
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key >= '0' && e.key <= '9') { e.preventDefault(); loginPress(e.key); }
-  else if (e.key === 'Backspace')    { e.preventDefault(); loginDel(); }
-  else if (e.key === 'Enter' && _loginCode.length === 7) { e.preventDefault(); doLogin(); }
-});
-
 function loginPress(d) {
   if (_loginCode.length >= 7) return;
   _loginCode += d; updateLoginBoxes();
