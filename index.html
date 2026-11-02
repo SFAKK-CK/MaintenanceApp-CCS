@@ -1532,10 +1532,16 @@ input:focus,select:focus,textarea:focus,
             style="display:none;width:100%;margin-top:6px;padding:10px;border:1.5px dashed #f59e0b;border-radius:8px;background:transparent;color:#b45309;font-size:14px;font-weight:600;cursor:pointer">
             ＋ เพิ่มเอง (ไม่มีในรายการ) / Manual add</button>
         </div>
-        <!-- Open PR, departments other than ENG: a plain description replaces the item rows. -->
+        <!-- Open PR, departments other than ENG: one line per item (name + quantity),
+             so the GM approves a clean numbered list. Nothing here goes into stock. -->
         <div class="field" id="prDescField" style="display:none">
-          <label class="lbl" for="prDesc">รายละเอียดสิ่งที่ต้องการซื้อ <span class="en">What to buy</span> <span class="req">*</span></label>
-          <textarea id="prDesc" rows="4" placeholder="เช่น เก้าอี้สำนักงาน 2 ตัว, หมึกพิมพ์ HP 682 สีดำ 3 กล่อง / e.g. 2 office chairs"></textarea>
+          <label class="lbl">รายการที่ต้องการซื้อ <span class="en">Items to buy</span> <span class="req">*</span></label>
+          <div style="display:grid;grid-template-columns:18px minmax(0,1fr) 84px 36px;gap:6px;font-size:12px;color:#94a3b8;margin-bottom:4px">
+            <span></span><span>ชื่อสินค้า / Item</span><span>จำนวน / Qty</span><span></span></div>
+          <div id="prFreeRows"></div>
+          <button type="button" onclick="prFreeAdd()"
+            style="width:100%;padding:10px;border:1.5px dashed #cbd5e1;border-radius:8px;background:transparent;color:#2563eb;font-size:14px;font-weight:600;cursor:pointer">
+            ＋ เพิ่มรายการ / Add item</button>
         </div>
 
         <div class="field">
@@ -2525,6 +2531,7 @@ function updateBuildInfoBox() {
     if (_sbtn) _sbtn.textContent = 'ส่งใบขอซื้อให้ GM อนุมัติ — Submit PR to GM for approval';
     var _df = document.getElementById('prDescField');
     if (_df) _df.style.display = _eng ? 'none' : 'block';
+    if (!_eng && !document.querySelectorAll('#prFreeRows .pr-free-row').length) prFreeAdd();
     prEngCategoryChanged();
     if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / หมายเหตุ <span class="en">Reason / Remark</span> <span class="req">*</span>';
     if (causeArea)   causeArea.placeholder = 'ระบุเหตุผลที่ต้องซื้อ เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด ต้องเปลี่ยนอะไหล่';
@@ -2728,6 +2735,8 @@ function prBuildRequestedText() {
 //  Each line carries its stock key so PO save can write รับเข้า automatically.
 // ══════════════════════════════════════════════════════════════════════
 var PR_TOOLS_CAT = 'เครื่องมือช่าง';
+// One easy-to-tap × for every item row (36×36).
+var PR_X_STYLE = 'width:36px;height:36px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#ef4444;font-size:20px;line-height:1;padding:0;cursor:pointer';
 var _prInv = null, _prInvLoading = false, _prInvErr = '';
 
 function isEngDept(d) {
@@ -2820,13 +2829,13 @@ function prEngAddPick() {
   d.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:8px';
   // Item box and quantity box share one width and height: both sit in the same
   // [number | box | ×] grid, the quantity row keeping an empty cell under the ×.
-  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:6px;align-items:center';
+  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 36px;gap:6px;align-items:center';
   var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
   d.innerHTML =
     '<div style="' + G + ';margin-bottom:6px">' +
       '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
       '<select class="pr-pick" onchange="prEngPickChanged(this)" style="' + BOX + '">' + opts + '</select>' +
-      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:0;cursor:pointer">×</button>' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="' + PR_X_STYLE + '">×</button>' +
     '</div>' +
     '<div style="' + G + '">' +
       '<span></span>' +
@@ -2855,7 +2864,7 @@ function prEngAddManual() {
   var id = ++_prRowSeq;
   var unitOpts = PR_UNITS.map(function(u){ return '<option value="' + u + '">' + u + '</option>'; }).join('');
   var fixed = prEngFixedCat();
-  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:6px;align-items:center';
+  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 36px;gap:6px;align-items:center';
   var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
   var catHtml = fixed
     ? '<span class="pr-cat-fixed" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px">' + fixed + '</span>'
@@ -2868,7 +2877,7 @@ function prEngAddManual() {
     '<div style="' + G + ';margin-bottom:6px">' +
       '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
       '<input class="pr-name" type="text" placeholder="ชื่อรายการใหม่ / New item name" style="' + BOX + '">' +
-      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:0;cursor:pointer">×</button>' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="' + PR_X_STYLE + '">×</button>' +
     '</div>' +
     '<div style="' + G + ';margin-bottom:6px"><span></span>' +
       '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" placeholder="จำนวน / Qty" style="' + BOX + '"><span></span></div>' +
@@ -2881,10 +2890,53 @@ function prEngAddManual() {
   prRenumber();
   d.querySelector('.pr-name').focus();
 }
+// × really removes the row — even the last one (the old code re-added a blank
+// row at once, so removing a single row looked like nothing happened).
 function prEngRemove(id) {
-  var row = document.querySelector('.pr-item-row[data-rid="' + id + '"]');
+  var row = document.querySelector('#prItemsRows .pr-item-row[data-rid="' + id + '"]');
   if (row) row.remove();
-  if (!document.querySelectorAll('.pr-item-row').length) prEngAddPick(); else prRenumber();
+  prRenumber();
+}
+
+// ── Open PR, other departments: item name + quantity per line ──
+var _prFreeSeq = 0;
+function prFreeAdd(name, qty) {
+  var wrap = document.getElementById('prFreeRows');
+  if (!wrap) return;
+  var id = ++_prFreeSeq;
+  var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
+  var d = document.createElement('div');
+  d.className = 'pr-free-row'; d.dataset.fid = id;
+  d.style.cssText = 'display:grid;grid-template-columns:18px minmax(0,1fr) 84px 36px;gap:6px;align-items:center;margin-bottom:6px';
+  d.innerHTML =
+    '<span class="pr-fidx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
+    '<input class="pr-fname" type="text" maxlength="150" placeholder="เช่น เก้าอี้สำนักงาน / e.g. office chair" value="' + esc(name || '') + '" style="' + BOX + '">' +
+    '<input class="pr-fqty" type="number" min="1" step="1" inputmode="numeric" value="' + (qty || 1) + '" style="' + BOX + ';text-align:center">' +
+    '<button type="button" onclick="prFreeRemove(' + id + ')" aria-label="Remove" style="' + PR_X_STYLE + '">×</button>';
+  wrap.appendChild(d);
+  prFreeRenumber();
+  if (!name) d.querySelector('.pr-fname').focus();
+}
+function prFreeRemove(id) {
+  var r = document.querySelector('#prFreeRows .pr-free-row[data-fid="' + id + '"]');
+  if (r) r.remove();
+  prFreeRenumber();
+}
+function prFreeRenumber() {
+  var rows = document.querySelectorAll('#prFreeRows .pr-free-row');
+  for (var i = 0; i < rows.length; i++) rows[i].querySelector('.pr-fidx').textContent = (i + 1) + '.';
+}
+// { items:[{name,qty}], error }
+function prFreeCollect() {
+  var out = [], rows = document.querySelectorAll('#prFreeRows .pr-free-row');
+  for (var i = 0; i < rows.length; i++) {
+    var nm = (rows[i].querySelector('.pr-fname').value || '').trim();
+    var q = parseInt(rows[i].querySelector('.pr-fqty').value, 10);
+    if (!nm) continue;
+    if (!(q >= 1)) return { items: [], error: 'จำนวนต้องอย่างน้อย 1 / Quantity must be at least 1: ' + nm };
+    out.push({ name: nm, qty: q });
+  }
+  return { items: out, error: '' };
 }
 // { items:[{name,key,qty,unit,isNew,cat}], error }
 function prEngCollect() {
@@ -2939,10 +2991,13 @@ function validateForm() {
   }
   if (isBuildReq) {
     if (!isEngDept(document.getElementById('dept').value)) {
-      var dEl = document.getElementById('prDesc');
-      if (!dEl || !dEl.value.trim()) {
-        if (dEl) { dEl.focus(); dEl.style.borderColor = '#ef4444'; setTimeout(function(){ dEl.style.borderColor=''; }, 2500); }
-        toast('กรุณาระบุสิ่งที่ต้องการซื้อ / Describe what to buy', 'warn');
+      var fc = prFreeCollect();
+      if (fc.error) { toast(fc.error, 'warn'); return false; }
+      if (!fc.items.length) {
+        var f0 = document.querySelector('#prFreeRows .pr-fname');
+        if (f0) { f0.focus(); f0.style.borderColor = '#ef4444'; setTimeout(function(){ f0.style.borderColor=''; }, 2500); }
+        else prFreeAdd();
+        toast('กรุณาระบุอย่างน้อย 1 รายการ / Add at least one item', 'warn');
         return false;
       }
       return true;
@@ -2988,8 +3043,10 @@ async function submitForm() {
       var raw = document.getElementById('cause').value.trim();
       if (!isBuildPayload) return raw;
       if (!isEngDept(document.getElementById('dept').value)) {
-        var desc = (document.getElementById('prDesc').value || '').trim();
-        return 'รายละเอียด / Description:\n' + desc + (raw ? '\n\nหมายเหตุ / Notes:\n' + raw : '');
+        var fi = prFreeCollect().items, txt = 'ขอซื้อ / Requested:';
+        for (var k = 0; k < fi.length; k++) txt += '\n' + (k + 1) + '. ' + fi[k].name + ' - ' + fi[k].qty;
+        var safe = raw.split('\n').map(function(l){ return l.replace(/^(\s*)\d+\.\s*/, '$1• '); }).join('\n');
+        return txt + (raw ? '\n\nหมายเหตุ / Notes:\n' + safe : '');
       }
       var block = prEngBuildText();
       if (!block) return raw;
@@ -3034,7 +3091,7 @@ function resetForm() {
   ['rname','dept','mname','cause','ddate'].forEach(id => document.getElementById(id).value = '');
   var _pr = document.getElementById('prItemsRows');
   if (_pr) { _pr.innerHTML = ''; _prRowSeq = 0; prRenumber(); }
-  var _pd = document.getElementById('prDesc'); if (_pd) _pd.value = '';
+  var _pf = document.getElementById('prFreeRows'); if (_pf) { _pf.innerHTML = ''; _prFreeSeq = 0; }
   var _ms = document.getElementById('mnameSelect'); if (_ms) _ms.value = '';
   var _sc = document.getElementById('prSubCat'); if (_sc) { _sc.value = ''; _sc.style.display = 'none'; }
   document.getElementById('t1').checked = true;
