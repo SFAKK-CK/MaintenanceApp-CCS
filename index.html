@@ -1482,7 +1482,8 @@ input:focus,select:focus,textarea:focus,
             <option value="">— เลือกแผนก / Select —</option>
             <option>ฝ่ายผลิต (Production)</option>
             <option>ควบคุมคุณภาพ (Quality Control / QC)</option>
-            <option>ฝ่ายช่าง (Maintenance)</option>
+            <option>ฝ่ายช่างทั่วไป (General Maintenance)</option>
+            <option>ฝ่ายช่างห้องเย็น (Cold Storage Maintenance)</option>
             <option>คลังสินค้า (Warehouse)</option>
             <option>ห้องเย็น (Cold Storage)</option>
             <option>ทรัพยากรบุคคล (HR)</option>
@@ -1494,22 +1495,16 @@ input:focus,select:focus,textarea:focus,
             <option>อื่นๆ (Other)</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="mnameField">
           <label class="lbl" for="mname">ชื่อเครื่อง/อุปกรณ์ <span class="en">Machine / Device</span> <span class="req">*</span></label>
           <div class="combobox" id="machineCombo">
             <input type="text" id="mname" autocomplete="off" placeholder="พิมพ์ชื่อเครื่องหรือรหัส เช่น GLAZING, CKF-PD-001.1 / Type machine name or code">
             <div class="combo-list" id="machineComboList" hidden></div>
           </div>
-          <select id="mnameSelect" style="display:none">
-            <option value="">— เลือกหมวดหมู่ / Select Category —</option>
-            <option value="อุปกรณ์ไฟฟ้า">อุปกรณ์ไฟฟ้า / Electrical Equipment</option>
-            <option value="อะไหล่เครื่องจักร">อะไหล่เครื่องจักร / Mechanical Parts</option>
-            <option value="อะไหล่ระบบความเย็น">อะไหล่ระบบความเย็น / Refrigeration Parts</option>
-            <option value="วัสดุสิ้นเปลือง">วัสดุสิ้นเปลือง / Consumables</option>
-            <option value="อุปกรณ์ความปลอดภัย">อุปกรณ์ความปลอดภัย / Safety Equipment</option>
-            <option value="เครื่องมือและอุปกรณ์ช่าง">เครื่องมือและอุปกรณ์ช่าง / Tools &amp; Hardware</option>
-            <option value="อุปกรณ์ IT">อุปกรณ์ IT / IT &amp; Electronics</option>
-            <option value="อื่นๆ">อื่นๆ — ระบุในช่องรายการสินค้า / Other — describe in Items field</option>
+          <select id="mnameSelect" style="display:none" onchange="prEngCategoryChanged()">
+            <option value="">— เลือกหมวดหมู่การจัดซื้อ / Select —</option>
+            <option value="RESTOCK">เติมสต็อก / Restock</option>
+            <option value="TOOLS">เครื่องมือช่าง / Tools</option>
           </select>
         </div>
         <!-- Open PR only: structured item rows. Emits the numbered
@@ -1519,9 +1514,17 @@ input:focus,select:focus,textarea:focus,
           <label class="lbl">รายการที่ต้องการซื้อ <span class="en">Items to purchase</span> <span class="req">*</span>
             <span id="prItemsCount" style="float:right;font-weight:400;color:#94a3b8;font-size:12px"></span></label>
           <div id="prItemsRows"></div>
-          <button type="button" id="prAddItemBtn" onclick="prAddItem()"
+          <button type="button" id="prAddItemBtn" onclick="prEngAddPick()"
             style="width:100%;padding:10px;border:1.5px dashed #cbd5e1;border-radius:8px;background:transparent;color:#2563eb;font-size:14px;font-weight:600;cursor:pointer">
             ＋ เพิ่มรายการ / Add item</button>
+          <button type="button" id="prManualBtn" onclick="prEngAddManual()"
+            style="display:none;width:100%;margin-top:6px;padding:10px;border:1.5px dashed #f59e0b;border-radius:8px;background:transparent;color:#b45309;font-size:14px;font-weight:600;cursor:pointer">
+            ＋ เพิ่มเอง (ไม่มีในรายการ) / Manual add</button>
+        </div>
+        <!-- Open PR, departments other than ENG: a plain description replaces the item rows. -->
+        <div class="field" id="prDescField" style="display:none">
+          <label class="lbl" for="prDesc">รายละเอียดสิ่งที่ต้องการซื้อ <span class="en">What to buy</span> <span class="req">*</span></label>
+          <textarea id="prDesc" rows="4" placeholder="เช่น เก้าอี้สำนักงาน 2 ตัว, หมึกพิมพ์ HP 682 สีดำ 3 กล่อง / e.g. 2 office chairs"></textarea>
         </div>
 
         <div class="field">
@@ -1815,6 +1818,8 @@ input:focus,select:focus,textarea:focus,
       <option value="">🏭 ทุกแผนก / All Departments</option>
       <option>ฝ่ายผลิต (Production)</option>
       <option>ควบคุมคุณภาพ (Quality Control / QC)</option>
+      <option>ฝ่ายช่างทั่วไป (General Maintenance)</option>
+      <option>ฝ่ายช่างห้องเย็น (Cold Storage Maintenance)</option>
       <option>ฝ่ายช่าง (Maintenance)</option>
       <option>คลังสินค้า (Warehouse)</option>
       <option>ห้องเย็น (Cold Storage)</option>
@@ -2416,6 +2421,11 @@ function prefillReporter() {
   // is a fixed <select>. Match exactly first, then loosely; if neither hits,
   // leave it unselected rather than guessing wrong.
   var sel = document.getElementById('dept');
+  // Technicians: the team decides the ENG department (same split as the tech view).
+  if (sel && !sel.value && (u.teamKey === 'gen' || u.teamKey === 'ref')) {
+    var _want = u.teamKey === 'ref' ? 'Cold Storage Maintenance' : 'General Maintenance';
+    for (var _o = 1; _o < sel.options.length; _o++) if ((sel.options[_o].text || '').indexOf(_want) >= 0) { sel.selectedIndex = _o; break; }
+  }
   if (sel && u.dept && !sel.value) {
     var want = String(u.dept).trim().toLowerCase();
     var opts = sel.options, exact = -1, loose = -1;
@@ -2452,6 +2462,8 @@ function initForm() {
       el._buildToggleWired = true;
     }
   });
+  var _deptSel = document.getElementById('dept');
+  if (_deptSel && !_deptSel._buildToggleWired) { _deptSel.addEventListener('change', updateBuildInfoBox); _deptSel._buildToggleWired = true; }
   updateBuildInfoBox();
   // Wire up the machine combobox (search-as-you-type from MACHINE_LIST).
   // Idempotent — guards itself against double-wiring on re-init.
@@ -2488,14 +2500,21 @@ function updateBuildInfoBox() {
   var causeArea   = document.getElementById('cause');
 
   if (isBuild) {
-    // Show category dropdown, hide free-text input
+    // STEP 2 — Open PR depends on the department:
+    //   ENG (General / Cold Storage Maintenance) → หมวดหมู่การจัดซื้อ (Restock / Tools)
+    //     first, THEN the item list for that category appears.
+    //   Any other department → description + reason + date + photo only.
     if (mnameInput)  { mnameInput.style.display  = 'none'; mnameInput.value = ''; }
-    if (mnameSelect)   mnameSelect.style.display  = 'block';
+    var _eng = isEngDept(document.getElementById('dept').value);
+    var _mf = document.getElementById('mnameField');
+    if (_mf) _mf.style.display = _eng ? '' : 'none';
+    if (mnameSelect) { mnameSelect.style.display = _eng ? 'block' : 'none'; if (!_eng) mnameSelect.value = ''; }
     if (mnameLabel)  mnameLabel.innerHTML = 'หมวดหมู่การจัดซื้อ <span class="en">Purchase Category</span> <span class="req">*</span>';
     var _sbtn = document.getElementById('submitBtn');
     if (_sbtn) _sbtn.textContent = 'ส่งใบขอซื้อให้ GM อนุมัติ — Submit PR to GM for approval';
-    var _pf = document.getElementById('prItemsField');
-    if (_pf) { _pf.style.display = 'block'; if (!document.querySelectorAll('.pr-item-row').length) prAddItem(); }
+    var _df = document.getElementById('prDescField');
+    if (_df) _df.style.display = _eng ? 'none' : 'block';
+    prEngCategoryChanged();
     if (causeLabel)  causeLabel.innerHTML = 'เหตุผล / หมายเหตุ <span class="en">Reason / Remark</span> <span class="req">*</span>';
     if (causeArea)   causeArea.placeholder = 'ระบุเหตุผลที่ต้องซื้อ เช่น คอมพิวเตอร์ห้อง QC เปิดไม่ติด ต้องเปลี่ยนอะไหล่';
   } else {
@@ -2506,6 +2525,8 @@ function updateBuildInfoBox() {
     if (_sbtn2) _sbtn2.textContent = 'ส่งคำร้องซ่อม — Submit Repair Request';
     var _pf2 = document.getElementById('prItemsField');
     if (_pf2) _pf2.style.display = 'none';
+    var _mf2 = document.getElementById('mnameField'); if (_mf2) _mf2.style.display = '';
+    var _df2 = document.getElementById('prDescField'); if (_df2) _df2.style.display = 'none';
     if (mnameLabel)  mnameLabel.innerHTML = 'ชื่อเครื่อง/อุปกรณ์ <span class="en">Machine / Device</span> <span class="req">*</span>';
     if (causeLabel)  causeLabel.innerHTML = 'อาการ/สาเหตุ <span class="en">Symptom / Cause</span> <span class="req">*</span>';
     if (causeArea)   causeArea.placeholder = 'อธิบายปัญหา... / Describe the issue...';
@@ -2686,6 +2707,181 @@ function prBuildRequestedText() {
   return s;
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+//  STEP 2 — ENG Open PR: Restock / Tools picker
+//  Items come from รายงานStockคงเหลือ (same list ENG uses to close a ticket).
+//    Restock → only items at or below minimum (🟠 out of stock + 🔴 low)
+//    Tools   → only เครื่องมือช่าง items
+//  plus "เพิ่มเอง" for something not in the list (registered at PO save).
+//  Each line carries its stock key so PO save can write รับเข้า automatically.
+// ══════════════════════════════════════════════════════════════════════
+var PR_TOOLS_CAT = 'เครื่องมือช่าง';
+var _prInv = null, _prInvLoading = false, _prInvErr = '';
+
+function isEngDept(d) {
+  d = String(d || '');
+  return /General Maintenance|Cold Storage Maintenance/.test(d) || d === 'ฝ่ายช่าง (Maintenance)';
+}
+function prEngCategoryLabel() {
+  if (!isEngDept(document.getElementById('dept').value)) return '';
+  var v = document.getElementById('mnameSelect').value;
+  return v === 'RESTOCK' ? 'เติมสต็อก (Restock)' : v === 'TOOLS' ? 'เครื่องมือช่าง (Tools)' : '';
+}
+function prEngList() {
+  var cat = document.getElementById('mnameSelect').value;
+  return (_prInv || []).filter(function(p){
+    if (cat === 'TOOLS') return (p.category || '') === PR_TOOLS_CAT;
+    var st = Number(p.stock) || 0, mn = Number(p.minStock) || 0;
+    return st <= 0 || st <= mn;
+  }).sort(function(a, b){ return (Number(a.stock)||0) - (Number(b.stock)||0); });
+}
+function prEngCategoryChanged() {
+  var pf = document.getElementById('prItemsField');
+  var picked = document.querySelector('input[name=rtype]:checked');
+  var isBuild = picked && isPurchaseRequestType(picked.value);
+  var eng = isEngDept(document.getElementById('dept').value);
+  var cat = document.getElementById('mnameSelect').value;
+  var rows = document.getElementById('prItemsRows');
+  // The item list stays hidden until a category is chosen.
+  if (!isBuild || !eng || !cat) { if (pf) pf.style.display = 'none'; if (rows) rows.innerHTML = ''; return; }
+  if (pf) pf.style.display = 'block';
+  if (rows && rows.dataset.cat !== cat) { rows.innerHTML = ''; rows.dataset.cat = cat; }
+  var lbl = pf.querySelector('.lbl');
+  if (lbl) lbl.firstChild.textContent = cat === 'TOOLS' ? 'เครื่องมือที่ต้องการซื้อ ' : 'รายการที่ต้องเติมสต็อก ';
+  document.getElementById('prManualBtn').style.display = 'block';
+  if (!_prInv) { prEngLoadInv(); return; }
+  if (!rows.querySelector('.pr-item-row')) prEngAddPick();
+}
+function prEngLoadInv() {
+  var rows = document.getElementById('prItemsRows');
+  if (_prInvLoading) return;
+  _prInvLoading = true; _prInvErr = '';
+  rows.innerHTML = '<div class="pr-inv-msg" style="padding:10px;font-size:13px;color:#64748b">กำลังโหลดรายการสต็อก… / Loading stock list…</div>';
+  fetch(APPS_SCRIPT_URL + '?action=getInventoryItems')
+    .then(safeJson)
+    .then(function(d){ if (d && d.success) _prInv = d.items || []; else _prInvErr = (d && d.error) || 'load failed'; })
+    .catch(function(e){ _prInvErr = e.message || 'network error'; })
+    .then(function(){
+      _prInvLoading = false;
+      if (_prInvErr) {
+        rows.innerHTML = '<div class="pr-inv-msg" style="padding:10px;font-size:13px;color:#b91c1c">โหลดรายการไม่สำเร็จ / Could not load: ' + esc(_prInvErr) +
+          ' <button type="button" onclick="prEngLoadInv()" style="margin-left:6px">ลองใหม่ / Retry</button></div>';
+        return;
+      }
+      rows.innerHTML = '';
+      prEngCategoryChanged();
+    });
+}
+function prEngAddPick() {
+  var rows = document.getElementById('prItemsRows');
+  if (!_prInv) { prEngLoadInv(); return; }
+  var list = prEngList();
+  var id = ++_prRowSeq;
+  var opts = '<option value="">— เลือกรายการ / Select item (' + list.length + ') —</option>' + list.map(function(p){
+    var st = Number(p.stock) || 0, mn = Number(p.minStock) || 0;
+    var tag = st <= 0 ? '🟠 หมด' : (st <= mn ? '🔴 ' + st + '/' + mn : st + '');
+    return '<option value="' + esc(p.code) + '">' + esc(p.name) + ' · ' + tag + ' ' + esc(p.unit || '') + '</option>';
+  }).join('');
+  var d = document.createElement('div');
+  d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'pick';
+  d.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:8px';
+  d.innerHTML =
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;width:14px;text-align:right"></span>' +
+      '<select class="pr-pick" onchange="prEngPickChanged(this)" style="flex:1;min-width:0">' + opts + '</select>' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer">×</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;align-items:center;padding-left:20px">' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="width:78px;flex:0 0 78px">' +
+      '<span class="pr-unit-lbl" style="font-size:13px;color:#475569"></span>' +
+      '<span class="pr-stock-lbl" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>' +
+    '</div>';
+  rows.appendChild(d);
+  if (!list.length) d.querySelector('.pr-stock-lbl').textContent = document.getElementById('mnameSelect').value === 'TOOLS'
+    ? 'ยังไม่มีเครื่องมือในสต็อก — ใช้ "เพิ่มเอง" / No tools listed — use Manual add'
+    : 'ไม่มีรายการต่ำกว่าขั้นต่ำ / Nothing below minimum';
+  prRenumber();
+}
+function prEngPickChanged(sel) {
+  var p = (_prInv || []).find(function(x){ return x.code === sel.value; });
+  var row = sel.closest('.pr-item-row');
+  row.querySelector('.pr-unit-lbl').textContent = p ? (p.unit || '') : '';
+  row.querySelector('.pr-stock-lbl').textContent = p ? ('คงเหลือ ' + (Number(p.stock)||0) + ' / ขั้นต่ำ ' + (Number(p.minStock)||0)) : '';
+}
+function prEngAddManual() {
+  var rows = document.getElementById('prItemsRows');
+  var cat = document.getElementById('mnameSelect').value;
+  var id = ++_prRowSeq;
+  var unitOpts = PR_UNITS.map(function(u){ return '<option value="' + u + '">' + u + '</option>'; }).join('');
+  var catHtml = cat === 'TOOLS'
+    ? '<span class="pr-cat-fixed" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px">' + PR_TOOLS_CAT + '</span>'
+    : '<select class="pr-cat" style="flex:1;min-width:0"><option value="">หมวด / Category *</option>' +
+        TD_CATS.map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('') + '</select>';
+  var d = document.createElement('div');
+  d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'manual';
+  d.style.cssText = 'border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:8px;margin-bottom:8px';
+  d.innerHTML =
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;width:14px;text-align:right"></span>' +
+      '<input class="pr-name" type="text" placeholder="ชื่อรายการใหม่ / New item name" style="flex:1;min-width:0">' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer">×</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;align-items:center;padding-left:20px;flex-wrap:wrap">' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="width:70px;flex:0 0 70px">' +
+      '<select class="pr-unit" style="flex:0 0 90px">' + unitOpts + '</select>' + catHtml +
+    '</div>' +
+    '<div style="font-size:11px;color:#92400e;padding:4px 0 0 20px">➕ รายการใหม่ — จะถูกเพิ่มเข้าฐานข้อมูลรายการเมื่อบันทึก PO</div>';
+  rows.appendChild(d);
+  prRenumber();
+  d.querySelector('.pr-name').focus();
+}
+function prEngRemove(id) {
+  var row = document.querySelector('.pr-item-row[data-rid="' + id + '"]');
+  if (row) row.remove();
+  if (!document.querySelectorAll('.pr-item-row').length) prEngAddPick(); else prRenumber();
+}
+// { items:[{name,key,qty,unit,isNew,cat}], error }
+function prEngCollect() {
+  var out = [], seen = {};
+  var cat = document.getElementById('mnameSelect').value;
+  var rows = document.querySelectorAll('#prItemsRows .pr-item-row');
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i], qty = parseInt(r.querySelector('.pr-qty').value, 10);
+    if (r.dataset.mode === 'pick') {
+      var code = r.querySelector('.pr-pick').value;
+      if (!code) continue;
+      if (!(qty >= 1)) return { items: [], error: 'จำนวนต้องอย่างน้อย 1 / Quantity must be at least 1' };
+      if (seen[code]) return { items: [], error: 'เลือกรายการซ้ำ / Same item chosen twice' };
+      seen[code] = 1;
+      var p = (_prInv || []).find(function(x){ return x.code === code; }) || {};
+      out.push({ name: p.name || code, key: code, qty: qty, unit: p.unit || '' });
+    } else {
+      var nm = (r.querySelector('.pr-name').value || '').trim();
+      if (!nm) continue;
+      var c = cat === 'TOOLS' ? PR_TOOLS_CAT : ((r.querySelector('.pr-cat') || {}).value || '');
+      if (!c) return { items: [], error: 'กรุณาเลือกหมวดของรายการใหม่ / Choose a category for "' + nm + '"' };
+      if (!(qty >= 1)) return { items: [], error: 'จำนวนต้องอย่างน้อย 1 / Quantity must be at least 1' };
+      out.push({ name: nm, key: '', qty: qty, unit: r.querySelector('.pr-unit').value, isNew: true, cat: c });
+    }
+  }
+  return { items: out, error: '' };
+}
+// Same numbered shape the tech-view PR uses, so the vendor form, Selected
+// Vendors and the PO-save receipt all read the stock key from it.
+function prEngBuildText() {
+  var items = prEngCollect().items;
+  if (!items.length) return '';
+  var s = 'ขอซื้อ / Requested:';
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    s += '\n' + (i + 1) + '. ' + it.name +
+         (it.isNew ? ' [รายการใหม่ / NEW ITEM — ' + it.cat + ']' : ' (' + it.key + ')') +
+         ' - ' + it.qty + (it.unit ? ' ' + it.unit : '');
+  }
+  return s;
+}
+
 function validateForm() {
   const isBuildReq = isPurchaseRequestType(document.querySelector('input[name=rtype]:checked')?.value);
   // For Open PR: validate category select instead of mname input
@@ -2697,29 +2893,24 @@ function validateForm() {
     if (!el.value.trim()) { el.focus(); el.style.borderColor = '#ef4444'; setTimeout(() => el.style.borderColor = '', 2500); return false; }
   }
   if (isBuildReq) {
+    if (!isEngDept(document.getElementById('dept').value)) {
+      var dEl = document.getElementById('prDesc');
+      if (!dEl || !dEl.value.trim()) {
+        if (dEl) { dEl.focus(); dEl.style.borderColor = '#ef4444'; setTimeout(function(){ dEl.style.borderColor=''; }, 2500); }
+        toast('กรุณาระบุสิ่งที่ต้องการซื้อ / Describe what to buy', 'warn');
+        return false;
+      }
+      return true;
+    }
     const sel = document.getElementById('mnameSelect');
     if (!sel || !sel.value) {
       if (sel) { sel.style.borderColor = '#ef4444'; setTimeout(() => sel.style.borderColor = '', 2500); }
+      toast('กรุณาเลือกหมวดหมู่การจัดซื้อ / Choose the purchase category', 'warn');
       return false;
     }
-    // At least one named item, else the PR says nothing about what to buy.
-    if (!prCollectItems().length) {
-      var firstName = document.querySelector('.pr-item-row .pr-name');
-      if (firstName) { firstName.focus(); firstName.style.borderColor = '#ef4444'; setTimeout(function(){ firstName.style.borderColor=''; }, 2500); }
-      toast('กรุณาระบุอย่างน้อย 1 รายการ / Add at least one item', 'warn');
-      return false;
-    }
-    // Unit set to อื่นๆ but left blank.
-    var rows = document.querySelectorAll('.pr-item-row');
-    for (var i = 0; i < rows.length; i++) {
-      if (!(rows[i].querySelector('.pr-name').value||'').trim()) continue;
-      var s = rows[i].querySelector('.pr-unit');
-      if (s.value === '__other__') {
-        var o = rows[i].querySelector('.pr-unit-other');
-        if (!(o.value||'').trim()) { o.focus(); o.style.borderColor = '#ef4444'; setTimeout(function(){ o.style.borderColor=''; }, 2500);
-          toast('กรุณาระบุหน่วยนับ / Specify the unit', 'warn'); return false; }
-      }
-    }
+    var chk = prEngCollect();
+    if (chk.error) { toast(chk.error, 'warn'); return false; }
+    if (!chk.items.length) { toast('กรุณาเลือกอย่างน้อย 1 รายการ / Add at least one item', 'warn'); return false; }
   }
   return true;
 }
@@ -2736,16 +2927,22 @@ async function submitForm() {
     reporterName: document.getElementById('rname').value.trim(),
     department: document.getElementById('dept').value,
     machineName: isBuildPayload
-      ? document.getElementById('mnameSelect').value
+      ? prEngCategoryLabel()   // ENG: Restock / Tools; other departments: left blank
       : document.getElementById('mname').value.trim(),
-    refCode: '',
+    // Column H: RESTOCK / TOOLS marks an ENG Open PR whose goods go into stock at PO save.
+    refCode: isBuildPayload && isEngDept(document.getElementById('dept').value)
+      ? (document.getElementById('mnameSelect').value || '') : '',
     // Open PR: the backend uses `cause` as itemDetails, and the vendor form
     // parses it for the per-item price grid — so send the NUMBERED block and
     // append any free-text notes below it.
     cause: (function(){
       var raw = document.getElementById('cause').value.trim();
       if (!isBuildPayload) return raw;
-      var block = prBuildRequestedText();
+      if (!isEngDept(document.getElementById('dept').value)) {
+        var desc = (document.getElementById('prDesc').value || '').trim();
+        return 'รายละเอียด / Description:\n' + desc + (raw ? '\n\nหมายเหตุ / Notes:\n' + raw : '');
+      }
+      var block = prEngBuildText();
       if (!block) return raw;
       if (!raw) return block;
       // A note line that starts "1." would be parsed as another item by
@@ -2788,6 +2985,8 @@ function resetForm() {
   ['rname','dept','mname','cause','ddate'].forEach(id => document.getElementById(id).value = '');
   var _pr = document.getElementById('prItemsRows');
   if (_pr) { _pr.innerHTML = ''; _prRowSeq = 0; prRenumber(); }
+  var _pd = document.getElementById('prDesc'); if (_pd) _pd.value = '';
+  var _ms = document.getElementById('mnameSelect'); if (_ms) _ms.value = '';
   document.getElementById('t1').checked = true;
   if (isUrgent) toggleUrgent();
   photos = []; renderPrev();
