@@ -1506,6 +1506,17 @@ input:focus,select:focus,textarea:focus,
             <option value="RESTOCK">เติมสต็อก / Restock</option>
             <option value="TOOLS">เครื่องมือช่าง / Tools</option>
           </select>
+          <!-- Restock only: the stock category (same list as ฐานข้อมูลรายการ column B) -->
+          <select id="prSubCat" style="display:none;margin-top:8px" onchange="prEngCategoryChanged()">
+            <option value="">— เลือกหมวดสต็อก / Select stock category —</option>
+            <option>ระบบทำความเย็น</option>
+            <option>ไฟฟ้าและสื่อสาร</option>
+            <option>ประปาและสี</option>
+            <option>อะไหล่ไลน์ผลิต</option>
+            <option>อะไหล่ซ่อมทั่วไป</option>
+            <option>งานซ่อมมอเตอร์</option>
+            <option>เครื่องมือช่าง</option>
+          </select>
         </div>
         <!-- Open PR only: structured item rows. Emits the numbered
              "ขอซื้อ / Requested:" block the vendor form's per-item price grid
@@ -2723,32 +2734,51 @@ function isEngDept(d) {
   d = String(d || '');
   return /General Maintenance|Cold Storage Maintenance/.test(d) || d === 'ฝ่ายช่าง (Maintenance)';
 }
+// Fixed stock category of the current choice ('' for Restock, which spans all).
+function prEngFixedCat() {
+  var v = document.getElementById('mnameSelect').value;
+  if (v === 'TOOLS') return PR_TOOLS_CAT;
+  if (v === 'RESTOCK') return document.getElementById('prSubCat').value || '';
+  return '';
+}
 function prEngCategoryLabel() {
   if (!isEngDept(document.getElementById('dept').value)) return '';
   var v = document.getElementById('mnameSelect').value;
-  return v === 'RESTOCK' ? 'เติมสต็อก (Restock)' : v === 'TOOLS' ? 'เครื่องมือช่าง (Tools)' : '';
+  return v === 'RESTOCK' ? 'เติมสต็อก (Restock) — ' + prEngFixedCat() : v === 'TOOLS' ? 'เครื่องมือช่าง (Tools)' : '';
 }
 function prEngList() {
   var cat = document.getElementById('mnameSelect').value;
-  return (_prInv || []).filter(function(p){
-    if (cat === 'TOOLS') return (p.category || '') === PR_TOOLS_CAT;
-    var st = Number(p.stock) || 0, mn = Number(p.minStock) || 0;
-    return st <= 0 || st <= mn;
-  }).sort(function(a, b){ return (Number(a.stock)||0) - (Number(b.stock)||0); });
+  var fixed = prEngFixedCat();
+  // Every item of the chosen category. Restock: items at/below minimum come first
+  // and are the only ones that can be picked; the rest are shown greyed out so ENG
+  // can see the item already exists (and does not re-add it by hand).
+  var restock = document.getElementById('mnameSelect').value === 'RESTOCK';
+  return (_prInv || []).filter(function(p){ return fixed && (p.category || '').trim() === fixed; })
+    .map(function(p){
+      var st = Number(p.stock) || 0, mn = Number(p.minStock) || 0;
+      p._low = st <= 0 || st <= mn; p._pickable = !restock || p._low; return p;
+    })
+    .sort(function(a, b){
+      if (restock && a._low !== b._low) return a._low ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name), 'th');
+    });
 }
 function prEngCategoryChanged() {
   var pf = document.getElementById('prItemsField');
   var picked = document.querySelector('input[name=rtype]:checked');
   var isBuild = picked && isPurchaseRequestType(picked.value);
   var eng = isEngDept(document.getElementById('dept').value);
-  var cat = document.getElementById('mnameSelect').value;
+  var top = document.getElementById('mnameSelect').value;
+  var sub = document.getElementById('prSubCat');
+  if (sub) { sub.style.display = (isBuild && eng && top === 'RESTOCK') ? 'block' : 'none'; if (top !== 'RESTOCK') sub.value = ''; }
+  var cat = top === 'RESTOCK' ? (sub && sub.value ? 'RESTOCK:' + sub.value : '') : top;
   var rows = document.getElementById('prItemsRows');
-  // The item list stays hidden until a category is chosen.
-  if (!isBuild || !eng || !cat) { if (pf) pf.style.display = 'none'; if (rows) rows.innerHTML = ''; return; }
+  // The item list stays hidden until the category (and, for Restock, the stock category) is chosen.
+  if (!isBuild || !eng || !cat) { if (pf) pf.style.display = 'none'; if (rows) { rows.innerHTML = ''; rows.dataset.cat = ''; } return; }
   if (pf) pf.style.display = 'block';
   if (rows && rows.dataset.cat !== cat) { rows.innerHTML = ''; rows.dataset.cat = cat; }
   var lbl = pf.querySelector('.lbl');
-  if (lbl) lbl.firstChild.textContent = cat === 'TOOLS' ? 'เครื่องมือที่ต้องการซื้อ ' : 'รายการที่ต้องเติมสต็อก ';
+  if (lbl) lbl.firstChild.textContent = top === 'TOOLS' ? 'เครื่องมือที่ต้องการซื้อ ' : 'รายการที่ต้องเติมสต็อก — ' + prEngFixedCat() + ' ';
   document.getElementById('prManualBtn').style.display = 'block';
   if (!_prInv) { prEngLoadInv(); return; }
   if (!rows.querySelector('.pr-item-row')) prEngAddPick();
@@ -2778,29 +2808,39 @@ function prEngAddPick() {
   if (!_prInv) { prEngLoadInv(); return; }
   var list = prEngList();
   var id = ++_prRowSeq;
-  var opts = '<option value="">— เลือกรายการ / Select item (' + list.length + ') —</option>' + list.map(function(p){
+  var nPick = list.filter(function(p){ return p._pickable; }).length;
+  var opts = '<option value="">— เลือกรายการ / Select item (' + nPick + ') —</option>' + list.map(function(p){
     var st = Number(p.stock) || 0, mn = Number(p.minStock) || 0;
-    var tag = st <= 0 ? '🟠 หมด' : (st <= mn ? '🔴 ' + st + '/' + mn : st + '');
-    return '<option value="' + esc(p.code) + '">' + esc(p.name) + ' · ' + tag + ' ' + esc(p.unit || '') + '</option>';
+    var tag = st <= 0 ? '🟠 หมด' : (st <= mn ? '🔴 ' + st + '/' + mn : '🟢 ' + st);
+    return '<option value="' + esc(p.code) + '"' + (p._pickable ? '' : ' disabled') + '>' + esc(p.name) + ' · ' + tag + ' ' + esc(p.unit || '') +
+           (p._pickable ? '' : ' (ยังไม่ต่ำกว่าขั้นต่ำ)') + '</option>';
   }).join('');
   var d = document.createElement('div');
   d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'pick';
   d.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:8px';
+  // Item box and quantity box share one width and height: both sit in the same
+  // [number | box | ×] grid, the quantity row keeping an empty cell under the ×.
+  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:6px;align-items:center';
+  var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
   d.innerHTML =
-    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
-      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;width:14px;text-align:right"></span>' +
-      '<select class="pr-pick" onchange="prEngPickChanged(this)" style="flex:1;min-width:0">' + opts + '</select>' +
-      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer">×</button>' +
+    '<div style="' + G + ';margin-bottom:6px">' +
+      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
+      '<select class="pr-pick" onchange="prEngPickChanged(this)" style="' + BOX + '">' + opts + '</select>' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:0;cursor:pointer">×</button>' +
     '</div>' +
-    '<div style="display:flex;gap:6px;align-items:center;padding-left:20px">' +
-      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="width:78px;flex:0 0 78px">' +
-      '<span class="pr-unit-lbl" style="font-size:13px;color:#475569"></span>' +
-      '<span class="pr-stock-lbl" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>' +
+    '<div style="' + G + '">' +
+      '<span></span>' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" placeholder="จำนวน / Qty" style="' + BOX + '">' +
+      '<span></span>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;padding:4px 0 0 24px;font-size:12px">' +
+      '<span class="pr-unit-lbl" style="color:#475569"></span>' +
+      '<span class="pr-stock-lbl" style="color:#94a3b8;margin-left:auto"></span>' +
     '</div>';
   rows.appendChild(d);
-  if (!list.length) d.querySelector('.pr-stock-lbl').textContent = document.getElementById('mnameSelect').value === 'TOOLS'
-    ? 'ยังไม่มีเครื่องมือในสต็อก — ใช้ "เพิ่มเอง" / No tools listed — use Manual add'
-    : 'ไม่มีรายการต่ำกว่าขั้นต่ำ / Nothing below minimum';
+  if (!nPick) d.querySelector('.pr-stock-lbl').textContent = list.length
+    ? 'ไม่มีรายการต่ำกว่าขั้นต่ำในหมวดนี้ / Nothing below minimum here'
+    : 'ยังไม่มีรายการในหมวดนี้ — ใช้ "เพิ่มเอง" / Nothing listed — use Manual add';
   prRenumber();
 }
 function prEngPickChanged(sel) {
@@ -2814,24 +2854,29 @@ function prEngAddManual() {
   var cat = document.getElementById('mnameSelect').value;
   var id = ++_prRowSeq;
   var unitOpts = PR_UNITS.map(function(u){ return '<option value="' + u + '">' + u + '</option>'; }).join('');
-  var catHtml = cat === 'TOOLS'
-    ? '<span class="pr-cat-fixed" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px">' + PR_TOOLS_CAT + '</span>'
-    : '<select class="pr-cat" style="flex:1;min-width:0"><option value="">หมวด / Category *</option>' +
+  var fixed = prEngFixedCat();
+  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 30px;gap:6px;align-items:center';
+  var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
+  var catHtml = fixed
+    ? '<span class="pr-cat-fixed" style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px">' + fixed + '</span>'
+    : '<select class="pr-cat" style="' + BOX + '"><option value="">หมวด / Category *</option>' +
         TD_CATS.map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('') + '</select>';
   var d = document.createElement('div');
   d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'manual';
   d.style.cssText = 'border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:8px;margin-bottom:8px';
   d.innerHTML =
-    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
-      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;width:14px;text-align:right"></span>' +
-      '<input class="pr-name" type="text" placeholder="ชื่อรายการใหม่ / New item name" style="flex:1;min-width:0">' +
-      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer">×</button>' +
+    '<div style="' + G + ';margin-bottom:6px">' +
+      '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
+      '<input class="pr-name" type="text" placeholder="ชื่อรายการใหม่ / New item name" style="' + BOX + '">' +
+      '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="border:none;background:none;color:#94a3b8;font-size:18px;line-height:1;padding:0;cursor:pointer">×</button>' +
     '</div>' +
-    '<div style="display:flex;gap:6px;align-items:center;padding-left:20px;flex-wrap:wrap">' +
-      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="width:70px;flex:0 0 70px">' +
-      '<select class="pr-unit" style="flex:0 0 90px">' + unitOpts + '</select>' + catHtml +
-    '</div>' +
-    '<div style="font-size:11px;color:#92400e;padding:4px 0 0 20px">➕ รายการใหม่ — จะถูกเพิ่มเข้าฐานข้อมูลรายการเมื่อบันทึก PO</div>';
+    '<div style="' + G + ';margin-bottom:6px"><span></span>' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" placeholder="จำนวน / Qty" style="' + BOX + '"><span></span></div>' +
+    '<div style="' + G + ';margin-bottom:6px"><span></span>' +
+      '<select class="pr-unit" style="' + BOX + '">' + unitOpts + '</select><span></span></div>' +
+    (fixed ? '<div style="padding:0 0 0 24px">' + catHtml + '</div>'
+           : '<div style="' + G + '"><span></span>' + catHtml + '<span></span></div>') +
+    '<div style="font-size:11px;color:#92400e;padding:4px 0 0 24px">➕ รายการใหม่ — จะถูกเพิ่มเข้าฐานข้อมูลรายการเมื่อบันทึก PO</div>';
   rows.appendChild(d);
   prRenumber();
   d.querySelector('.pr-name').focus();
@@ -2859,7 +2904,7 @@ function prEngCollect() {
     } else {
       var nm = (r.querySelector('.pr-name').value || '').trim();
       if (!nm) continue;
-      var c = cat === 'TOOLS' ? PR_TOOLS_CAT : ((r.querySelector('.pr-cat') || {}).value || '');
+      var c = prEngFixedCat() || ((r.querySelector('.pr-cat') || {}).value || '');
       if (!c) return { items: [], error: 'กรุณาเลือกหมวดของรายการใหม่ / Choose a category for "' + nm + '"' };
       if (!(qty >= 1)) return { items: [], error: 'จำนวนต้องอย่างน้อย 1 / Quantity must be at least 1' };
       out.push({ name: nm, key: '', qty: qty, unit: r.querySelector('.pr-unit').value, isNew: true, cat: c });
@@ -2907,6 +2952,10 @@ function validateForm() {
       if (sel) { sel.style.borderColor = '#ef4444'; setTimeout(() => sel.style.borderColor = '', 2500); }
       toast('กรุณาเลือกหมวดหมู่การจัดซื้อ / Choose the purchase category', 'warn');
       return false;
+    }
+    if (sel.value === 'RESTOCK' && !document.getElementById('prSubCat').value) {
+      var sc = document.getElementById('prSubCat'); sc.style.borderColor = '#ef4444'; setTimeout(function(){ sc.style.borderColor=''; }, 2500);
+      toast('กรุณาเลือกหมวดสต็อก / Choose the stock category', 'warn'); return false;
     }
     var chk = prEngCollect();
     if (chk.error) { toast(chk.error, 'warn'); return false; }
@@ -2987,6 +3036,7 @@ function resetForm() {
   if (_pr) { _pr.innerHTML = ''; _prRowSeq = 0; prRenumber(); }
   var _pd = document.getElementById('prDesc'); if (_pd) _pd.value = '';
   var _ms = document.getElementById('mnameSelect'); if (_ms) _ms.value = '';
+  var _sc = document.getElementById('prSubCat'); if (_sc) { _sc.value = ''; _sc.style.display = 'none'; }
   document.getElementById('t1').checked = true;
   if (isUrgent) toggleUrgent();
   photos = []; renderPrev();
