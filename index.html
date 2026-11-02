@@ -4799,7 +4799,7 @@ function techCreateTicket(){
 }
 
 // ── Detail screen ──
-var _updPhotos=[],_cmpPhotos=[];
+var _updPhotos=[],_cmpPhotos=[],_cmpReqId=null;
 function tHandleUpdPhotos(files){Array.from(files).forEach(function(f){addPhoto(f,_updPhotos,3,function(){_updPhotos=_updPhotos.filter(Boolean);tRenderPrev('upd');});});}
 function tHandleCmpPhotos(files){Array.from(files).forEach(function(f){addPhoto(f,_cmpPhotos,3,function(){_cmpPhotos=_cmpPhotos.filter(Boolean);tRenderPrev('cmp');});});}
 function tRenderPrev(which){var arr=which==='upd'?_updPhotos:_cmpPhotos;var el=document.getElementById('tPrev_'+which);if(!el)return;var h='';arr.forEach(function(p,i){h+='<div style="display:inline-block;position:relative;margin:4px"><img src="'+p.data+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0"><button onclick="tRmPhoto(\''+which+'\','+i+')" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:12px;cursor:pointer;line-height:20px">×</button></div>';});el.innerHTML=h;var c=document.getElementById('tCnt_'+which);if(c)c.textContent=arr.length?arr.length+'/3 รูป':'';}
@@ -4917,7 +4917,7 @@ function tInqRSP(){var el=document.getElementById('tInqSP');if(!el)return;var h=
 
 function tOpen(tid,mode){
   _techCurrent=_techTickets.find(function(x){return x.ticketNumber===tid;});if(!_techCurrent)return;
-  _techMode=mode||'u';_techNS='In Progress';_techSelected=[];_inqSelected=[];_inqMode='inv';_updPhotos=[];_cmpPhotos=[];
+  _techMode=mode||'u';_techNS='In Progress';_techSelected=[];_inqSelected=[];_inqMode='inv';_updPhotos=[];_cmpPhotos=[];_cmpReqId=null;
   _inqGmUnlock=false;   // GM stock-gate override is per ticket — never carries over
   tRenderDetail();
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
@@ -5087,7 +5087,8 @@ function tRenderDetail(){
   h+='</div>';
   h+='<div class="td-lbl">📷 รูปหลังซ่อม</div><div style="padding:0 4px 8px"><input type="file" accept="image/*" multiple onchange="tHandleCmpPhotos(this.files)" style="font-size:13px"><div id="tPrev_cmp" style="margin-top:6px"></div><div id="tCnt_cmp" style="font-size:11px;color:#94a3b8"></div></div>';
   h+='<div class="td-lbl">📝 หมายเหตุ</div><div class="td-ta"><textarea id="tCNote" placeholder="หมายเหตุ..."></textarea></div>';
-  h+='<button class="td-action green" onclick="tComplete()">✓ เสร็จสิ้นและตัดสต็อก</button><div class="td-hint">อะไหล่จะถูกตัดสต็อกอัตโนมัติ</div>';
+  h+='<div id="tCmpErr" style="display:none;margin:4px 4px 10px;padding:10px 12px;border:1.5px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:10px;font-size:13px;white-space:pre-line"></div>';
+  h+='<button class="td-action green" id="tCmpBtn" onclick="tComplete()">✓ เสร็จสิ้นและตัดสต็อก</button><div class="td-hint">อะไหล่จะถูกตัดสต็อกอัตโนมัติ</div>';
   h+='</div></div>';
   document.getElementById('techDetailInner').innerHTML=h;
   if(_techMode==='c'){tRP('');tRSP();}
@@ -5147,7 +5148,9 @@ function tSaveUpd(){
   var techName=window._loggedInUser.name;
   showLoading('กำลังบันทึก...');
   // Ensure ACCEPTED_AT is set (for tickets accepted before the fix)
-  postToScript({action:'acceptTicket_tech',ticketNumber:_techCurrent.ticketNumber,staffName:techName}).then(function(){return tSaveUpdDo(rc,techName);}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
+  // STEP 1: no separate accept call any more — the save itself stamps ACCEPTED_AT
+  // (stampAcceptedIfMissing), so a failed save leaves the ticket untouched.
+  tSaveUpdDo(rc,techName);
 }
 function tSaveUpdDo(rc,techName){
   if(_techNS==='Inquiring'){
@@ -5176,16 +5179,16 @@ function tSaveUpdDo(rc,techName){
     // Column P = the spare-parts story; the requested list goes there.
     var correctionInq='🔍 สาเหตุ: '+rc;
     var requestedInq='ขอซื้อ / Requested:\n'+itemDesc;
-    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F4CB} Inquiring for Quotation',technician:techName,correction:correctionInq,spareParts:requestedInq,notifyPurchasing:true,newItems:newItems,quotationPhotos:_updPhotos.map(function(p){return{name:p.name,data:p.data};})}).then(function(){hideLoading();tBack();toast('ส่งใบขอซื้อให้ GM อนุมัติแล้ว ✓');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
+    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F4CB} Inquiring for Quotation',technician:techName,stampAcceptedIfMissing:true,correction:correctionInq,spareParts:requestedInq,notifyPurchasing:true,newItems:newItems,quotationPhotos:_updPhotos.map(function(p){return{name:p.name,data:p.data};})}).then(function(){hideLoading();tBack();toast('ส่งใบขอซื้อให้ GM อนุมัติแล้ว ✓');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
   } else if(_techNS==='Outside Team'){
     var det=(document.getElementById('tUDetNonInq').value||'').trim();if(!det){hideLoading();toast('กรุณากรอกรายละเอียด','error');return;}
     var correction='🔍 สาเหตุ: '+rc+'\n'+det;
-    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F6A7} Waiting for Outside Team',technician:techName,correction:correction,notifyOutsideTeam:true,quotationPhotos:_updPhotos.map(function(p){return{name:p.name,data:p.data};})}).then(function(){hideLoading();tBack();toast('บันทึกแล้ว — ระงับ 🔒');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
+    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F6A7} Waiting for Outside Team',technician:techName,stampAcceptedIfMissing:true,correction:correction,notifyOutsideTeam:true,quotationPhotos:_updPhotos.map(function(p){return{name:p.name,data:p.data};})}).then(function(){hideLoading();tBack();toast('บันทึกแล้ว — ระงับ 🔒');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
   } else {
     var det=(document.getElementById('tUDetNonInq').value||'').trim();if(!det){hideLoading();toast('กรุณากรอกรายละเอียด','error');return;}
     var spares=(_techNS==='In Progress')?(document.getElementById('tUSpares').value||'').trim():'';
     var correction='🔍 สาเหตุ: '+rc+'\n'+det;
-    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F535} In Progress',technician:techName,correction:correction,spareParts:spares}).then(function(){hideLoading();tBack();toast('บันทึกแล้ว ✓');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
+    postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,status:'\u{1F535} In Progress',technician:techName,stampAcceptedIfMissing:true,correction:correction,spareParts:spares}).then(function(){hideLoading();tBack();toast('บันทึกแล้ว ✓');}).catch(function(e){hideLoading();toast('Error: '+e.message,'error');});
   }
 }
 
@@ -5296,65 +5299,40 @@ function tComplete(){
                       :_techSelected.map(function(s){return s.name+' x'+s.qty;}).join(', ');
   // Labelled so it sits under any "ขอซื้อ / Requested" block already in column P.
   var usedLog='ใช้จริง / Used:\n'+partsLog;
-  showLoading('กำลังบันทึก...');
-  // Step 0: Ensure ACCEPTED_AT is set (for tickets accepted before the fix)
+  // STEP 1 — ONE all-or-nothing call. If anything fails nothing is saved on the
+  // server, this form stays exactly as filled in, and the red box says why.
+  // The request id survives retries so a dropped signal can't deduct twice.
+  if(!_cmpReqId)_cmpReqId='CMP-'+_techCurrent.ticketNumber+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  tCmpShowErr('');
+  var btn=document.getElementById('tCmpBtn');if(btn)btn.disabled=true;
+  showLoading(_techSelected.length?'กำลังปิดงานและตัดสต็อก...':'กำลังปิดงาน...');
+  var sentParts=noParts?[]:_techSelected.slice();
   postToScript({
-    action:'acceptTicket_tech',
+    action:'completeAtomic_tech',
+    requestId:_cmpReqId,
     ticketNumber:_techCurrent.ticketNumber,
-    staffName:window._loggedInUser.name
+    staffName:window._loggedInUser.name,
+    technician:window._loggedInUser.name,
+    correction:full,
+    spareParts:usedLog,
+    department:_techCurrent.department,
+    machineCode:_techCurrent.machine,
+    parts:sentParts.map(function(s){return{code:s.code,name:s.name,qty:s.qty,unit:s.unit,isOther:!!s.isOther,category:s.category||'',minStock:s.minStock||0,location:s.location||''};}),
+    photos:_cmpPhotos.map(function(p){return{name:p.name,data:p.data};})
   }).then(function(){
-    // Step 1: Mark ticket complete via updateTicketStatus (proven working)
-    return postToScript({
-      action:'updateTicketStatus',
-      ticketNumber:_techCurrent.ticketNumber,
-      status:'🟢 Completed',
-      technician:window._loggedInUser.name,
-      correction:full,
-      spareParts:usedLog,
-      appendSpareParts:true
-    });
-  }).then(function(){
-    // Step 2: Deduct inventory and/or upload photos
-    if(_techSelected.length>0 || _cmpPhotos.length>0){
-      showLoading('กำลังตัดสต็อก...');
-      return new Promise(function(resolve){setTimeout(resolve,1500);}).then(function(){
-        var deductPayload={
-          action:'stockDeduct_tech',
-          ticketNumber:_techCurrent.ticketNumber,
-          staffName:window._loggedInUser.name,
-          notes:full,
-          department:_techCurrent.department,
-          machineCode:_techCurrent.machine,
-          parts:_techSelected.map(function(s){return{code:s.code,name:s.name,qty:s.qty,unit:s.unit,isOther:!!s.isOther,category:s.category||'',minStock:s.minStock||0,location:s.location||''};})
-        };
-        if(_cmpPhotos.length>0)deductPayload.photos=_cmpPhotos.map(function(p){return{name:p.name,data:p.data};});
-        return postToScript(deductPayload);
-      });
-    }
-  }).then(function(){
-    hideLoading();_techSelected.forEach(function(s){var p=_techParts.find(function(x){return x.code===s.code;});if(p)p.stock=Math.max(0,p.stock-s.qty);});_techSelected=[];tBack();
-    toast(partsLog?'เสร็จสิ้น ✓ ตัดสต็อกแล้ว':'เสร็จสิ้น ✓');
+    hideLoading();
+    sentParts.forEach(function(s){var p=_techParts.find(function(x){return x.code===s.code;});if(p)p.stock=Math.max(0,p.stock-s.qty);});
+    _techSelected=[];_cmpPhotos=[];_cmpReqId=null;tBack();
+    toast(sentParts.length?'เสร็จสิ้น ✓ ตัดสต็อกแล้ว':'เสร็จสิ้น ✓');
   }).catch(function(e){
     hideLoading();
-    // Steps 0+1 already succeeded — ticket is Completed. Only stock deduction may have failed.
-    // Persist the failure so the completed card keeps warning after this
-    // session — best effort; if even this write fails, the missing STOCK-OK
-    // marker still triggers the warning.
-    try{
-      if(!noParts && _techSelected.length>0){
-        postToScript({action:'updateTicketStatus',ticketNumber:_techCurrent.ticketNumber,
-          notes:'\u26A0\uFE0F STOCK-FAIL: \u0E15\u0E31\u0E14\u0E2A\u0E15\u0E47\u0E2D\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 ('+(e&&e.message?e.message:'unknown')+') \u2014 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E31\u0E14\u0E43\u0E19\u0E0A\u0E35\u0E17\u0E14\u0E49\u0E27\u0E22\u0E21\u0E37\u0E2D'
-        }).catch(function(){});
-      }
-    }catch(_pf){}
-    _techSelected=[];tBack();
-    if(partsLog){
-      toast('ปิดงานแล้ว ✓ แต่ตัดสต็อกไม่สำเร็จ — กรุณาตัดสต็อกด้วยมือ','warn');
-    } else {
-      toast('Error: '+e.message,'error');
-    }
+    if(btn)btn.disabled=false;
+    var m=(e&&e.message)?e.message:'unknown error';
+    tCmpShowErr('❌ ยังไม่ได้บันทึก — ข้อมูลยังอยู่ครบ กดบันทึกอีกครั้งได้\nNOT saved — your entries are kept, press again.\n\n'+m);
+    toast('ยังไม่ได้บันทึก / Not saved','error');
   });
 }
+function tCmpShowErr(msg){var el=document.getElementById('tCmpErr');if(!el)return;if(!msg){el.style.display='none';el.textContent='';return;}el.textContent=msg;el.style.display='block';el.scrollIntoView({block:'center',behavior:'smooth'});}
 
 </script>
 </body>
