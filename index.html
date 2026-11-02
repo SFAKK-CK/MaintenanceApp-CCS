@@ -1524,6 +1524,8 @@ input:focus,select:focus,textarea:focus,
         <div class="field" id="prItemsField" style="display:none">
           <label class="lbl">รายการที่ต้องการซื้อ <span class="en">Items to purchase</span> <span class="req">*</span>
             <span id="prItemsCount" style="float:right;font-weight:400;color:#94a3b8;font-size:12px"></span></label>
+          <div style="display:grid;grid-template-columns:18px minmax(0,1fr) 84px 36px;gap:6px;font-size:12px;color:#94a3b8;margin-bottom:4px">
+            <span></span><span>ชื่อสินค้า / Item</span><span>จำนวน / Qty</span><span></span></div>
           <div id="prItemsRows"></div>
           <button type="button" id="prAddItemBtn" onclick="prEngAddPick()"
             style="width:100%;padding:10px;border:1.5px dashed #cbd5e1;border-radius:8px;background:transparent;color:#2563eb;font-size:14px;font-weight:600;cursor:pointer">
@@ -2736,6 +2738,7 @@ function prBuildRequestedText() {
 // ══════════════════════════════════════════════════════════════════════
 var PR_TOOLS_CAT = 'เครื่องมือช่าง';
 // One easy-to-tap × for every item row (36×36).
+var PR_ROW_GRID = 'display:grid;grid-template-columns:18px minmax(0,1fr) 84px 36px;gap:6px;align-items:center';
 var PR_X_STYLE = 'width:36px;height:36px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#ef4444;font-size:20px;line-height:1;padding:0;cursor:pointer';
 var _prInv = null, _prInvLoading = false, _prInvErr = '';
 
@@ -2826,23 +2829,17 @@ function prEngAddPick() {
   }).join('');
   var d = document.createElement('div');
   d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'pick';
-  d.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:8px';
-  // Item box and quantity box share one width and height: both sit in the same
-  // [number | box | ×] grid, the quantity row keeping an empty cell under the ×.
-  var G = 'display:grid;grid-template-columns:18px minmax(0,1fr) 36px;gap:6px;align-items:center';
+  // Same one-line layout as the other-department rows: [no.] [item] [qty] [×]
+  d.style.cssText = 'margin-bottom:6px';
   var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
   d.innerHTML =
-    '<div style="' + G + ';margin-bottom:6px">' +
+    '<div style="' + PR_ROW_GRID + '">' +
       '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
       '<select class="pr-pick" onchange="prEngPickChanged(this)" style="' + BOX + '">' + opts + '</select>' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="' + BOX + ';text-align:center">' +
       '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="' + PR_X_STYLE + '">×</button>' +
     '</div>' +
-    '<div style="' + G + '">' +
-      '<span></span>' +
-      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" placeholder="จำนวน / Qty" style="' + BOX + '">' +
-      '<span></span>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px;padding:4px 0 0 24px;font-size:12px">' +
+    '<div style="display:flex;gap:8px;padding:2px 42px 0 24px;font-size:12px">' +
       '<span class="pr-unit-lbl" style="color:#475569"></span>' +
       '<span class="pr-stock-lbl" style="color:#94a3b8;margin-left:auto"></span>' +
     '</div>';
@@ -2872,19 +2869,17 @@ function prEngAddManual() {
         TD_CATS.map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('') + '</select>';
   var d = document.createElement('div');
   d.className = 'pr-item-row'; d.dataset.rid = id; d.dataset.mode = 'manual';
-  d.style.cssText = 'border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:8px;margin-bottom:8px';
+  d.style.cssText = 'border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:6px;margin-bottom:6px';
   d.innerHTML =
-    '<div style="' + G + ';margin-bottom:6px">' +
+    '<div style="' + PR_ROW_GRID + '">' +
       '<span class="pr-idx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
       '<input class="pr-name" type="text" placeholder="ชื่อรายการใหม่ / New item name" style="' + BOX + '">' +
+      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" style="' + BOX + ';text-align:center">' +
       '<button type="button" onclick="prEngRemove(' + id + ')" aria-label="Remove" style="' + PR_X_STYLE + '">×</button>' +
     '</div>' +
-    '<div style="' + G + ';margin-bottom:6px"><span></span>' +
-      '<input class="pr-qty" type="number" min="1" step="1" inputmode="numeric" value="1" placeholder="จำนวน / Qty" style="' + BOX + '"><span></span></div>' +
-    '<div style="' + G + ';margin-bottom:6px"><span></span>' +
-      '<select class="pr-unit" style="' + BOX + '">' + unitOpts + '</select><span></span></div>' +
-    (fixed ? '<div style="padding:0 0 0 24px">' + catHtml + '</div>'
-           : '<div style="' + G + '"><span></span>' + catHtml + '<span></span></div>') +
+    '<div style="display:grid;grid-template-columns:18px 110px minmax(0,1fr) 36px;gap:6px;align-items:center;margin-top:6px"><span></span>' +
+      '<select class="pr-unit" style="' + BOX + '">' + unitOpts + '</select>' +
+      (fixed ? '<span>' + catHtml + '</span>' : catHtml) + '<span></span></div>' +
     '<div style="font-size:11px;color:#92400e;padding:4px 0 0 24px">➕ รายการใหม่ — จะถูกเพิ่มเข้าฐานข้อมูลรายการเมื่อบันทึก PO</div>';
   rows.appendChild(d);
   prRenumber();
@@ -2907,7 +2902,7 @@ function prFreeAdd(name, qty) {
   var BOX = 'width:100%;height:42px;box-sizing:border-box;font-size:15px';
   var d = document.createElement('div');
   d.className = 'pr-free-row'; d.dataset.fid = id;
-  d.style.cssText = 'display:grid;grid-template-columns:18px minmax(0,1fr) 84px 36px;gap:6px;align-items:center;margin-bottom:6px';
+  d.style.cssText = PR_ROW_GRID + ';margin-bottom:6px';
   d.innerHTML =
     '<span class="pr-fidx" style="font-size:12px;color:#94a3b8;text-align:right"></span>' +
     '<input class="pr-fname" type="text" maxlength="150" placeholder="เช่น เก้าอี้สำนักงาน / e.g. office chair" value="' + esc(name || '') + '" style="' + BOX + '">' +
